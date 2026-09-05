@@ -404,9 +404,12 @@ removida por regressão) ou **drift manual** (tabela dropada por fora com a linh
 histórico intacta). Nesses dois casos o `/health/ready` mente — responde saudável com o
 dado que ele deveria servir ausente.
 
-Hoje isso é inofensivo porque a migration do F1 é vazia — não há tabela para faltar.
-**Passa a importar no F2**, quando existir tabela de verdade: o readiness check
-precisará confirmar algo além de `CanConnectAsync()` para continuar sendo prova.
+No `operacoes` isso era inofensivo enquanto a migration da primeira fase era vazia —
+não havia tabela para faltar. **No `hub` a lacuna já está aberta hoje**: mesmo
+`AddDbContextCheck<AppDbContext>()`, quatro migrations reais, e um `/health/ready` que
+responderia `200 Healthy` com qualquer uma delas ausente por drift. A regra geral: a
+partir do momento em que um serviço tem schema, o readiness precisa confirmar algo além
+de `CanConnectAsync()` para continuar valendo como prova de prontidão.
 
 ### 10.19. Testar o header não testa o log
 
