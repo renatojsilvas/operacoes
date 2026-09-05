@@ -15,7 +15,7 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
 
 ## Fila
 
-- [ ] **F1** — esqueleto da solucao (Operacoes.API, Operacoes.Application, Operacoes.Domain,
+- [x] **F1** — esqueleto da solucao (Operacoes.API, Operacoes.Application, Operacoes.Domain,
   Operacoes.Infrastructure) seguindo o molde: Directory.Build.props, Dockerfile
   multi-stage, Serilog+CorrelationId, health/metrics, migrations no boot conectando
   como role `operacoes`. **Sem endpoints de negocio.**
@@ -50,28 +50,37 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   — nao marque nada como pronto sem ela.
   ```
 
-  <br>**Estado em 2026-09-05 (não marque o checkbox — `./scripts/verificar-f1.sh`
-  reporta 5 OK, 1 FALHA e 3 SKIP neste momento):**
+  <br>**FECHADO em 2026-09-05.** `./scripts/verificar-f1.sh` com `VPS`,
+  `GC_GRAFANA_URL` e `GC_GRAFANA_TOKEN` definidos: **9 ok, 0 falha, 1 pulado**. O SKIP
+  restante é o da prova 5 e é permanente por construção — o script diz que nenhum
+  script a substitui. Ela foi cumprida à mão: limiar de `operacoes-db-readiness-down`
+  baixado, alerta disparado, mensagem confirmada no Telegram, e o limiar restaurado
+  (conferido depois via API de provisionamento: as duas regras de volta em `eq [0]`).
 
-  Pronto: os 4 projetos e o esqueleto Serilog+CorrelationId+health/metrics+migration-
-  no-boot em `src/`; `tests/*.Architecture.Tests` copiado do `hub-precos` com o
-  controle positivo da §10.8; CI corrigido — as asserções herdadas do molde que não se
-  aplicam a esta fase (`/v1/instruments`, `TD_API_KEY`, backlog de `outbox`,
-  smoke test do relay, guarda de colisão citando `operacoes-rabbitmq`) foram removidas
-  ou substituídas por equivalente que existe agora (ver PADROES §10.20); serviço do
-  compose renomeado de `app` para `operacoes` depois de medir os aliases já ocupados
-  na rede `plataforma` (PADROES §10.1); limites de recurso do compose de produção
-  (`cpu_shares: 512`, `memory: 192m`) vindos de medição real na VPS, não herdados do
-  hub (LEIA-ME-KIT, "Armadilhas de infra", item 9); fiação de observabilidade
-  (scrape, dashboard, regra de alerta) **escrita** no repo `tesouro-direto-api`.
+  As cinco provas, uma a uma: (1) o merge do PR #1 deployou sozinho — `deploy: success`
+  no run de **push**, não no do PR; (2) `/health/ready` respondendo 200 pela VPS, com o
+  database `operacoes` de posse da role `operacoes` e a migration `InitialCreate`
+  aplicada; (3) série `up{job="operacoes"}` na nuvem; (4) dashboard `operacoes`
+  publicado; (5) alerta chegando no Telegram.
 
-  Falta: secrets do deploy cadastrados no GitHub (`VPS_HOST`, `VPS_USER`,
-  `VPS_SSH_KEY` e os do serviço); o primeiro merge deployando sozinho pela pipeline
-  (prova 1); commitar no `tesouro-direto-api` os arquivos de observabilidade que hoje
-  estão `??` (não rastreados) lá — sem isso, o `apply-cloud.sh` os ignora; rodar o
-  `apply-cloud.sh` de fato; e um alerta disparado de propósito chegando no Telegram
-  (prova 5, a única que prova a corrente inteira). Ver `COMECE-AQUI.md`, seção
-  "Fora deste repo", para o detalhe de cada um.
+  144 testes, 92,19% de cobertura (gate: 85%).
+
+  **Três defeitos achados ao fechar, todos corrigidos e propagados ao molde:**
+
+  1. O serviço do compose local entrava na rede compartilhada `plataforma` com o nome
+     genérico `app`. Acrescentar `aliases:` **não** resolve — o nome do serviço é alias
+     sempre. Renomeado. Virou corolário da PADROES §10.1.
+  2. O `TELEGRAM_BOT_TOKEN` foi passado errado ao `apply-cloud.sh` numa primeira
+     tentativa. A guarda `${VAR:?}` só testa vazio, então o valor passou, os **três**
+     contact points (TD, hub e operacoes) foram sobrescritos e o script reportou
+     sucesso. Consertado re-rodando com o token certo, lido do `.env` da VPS.
+  3. A **prova 4 do próprio `verificar-f1.sh` nunca podia passar, para nenhum serviço**:
+     ela buscava o dashboard por `/api/search?query=<slug>`, e o `/api/search` do
+     Grafana casa só por título — e os títulos têm acento e espaço (`Operações`,
+     `Hub de Preços`, `Tesouro Direto API`). Passou a buscar por uid, com controle
+     negativo provando que a checagem sabe dizer "não". Corrigido nos dois repos.
+
+  PRs: operacoes #1, #2, #3 · hub-precos #30, #31 · tesouro-direto #79.
 
 - [ ] **F2** — schema do Operações como migrations EF, snake_case, índices nomeados.
 
