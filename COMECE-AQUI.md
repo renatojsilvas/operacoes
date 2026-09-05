@@ -51,10 +51,10 @@ de referencia nao tem. Falta o que um script nao pode fazer.
 
 ## 3. Fora deste repo
 
-- [ ] Secrets no GitHub: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` e os do servico.
+- [x] Secrets no GitHub: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` e os do servico.
       Cadastre **antes** do primeiro merge — o deploy falha cedo e com mensagem clara
       se faltarem, mas falha.
-- [ ] No repo do `tesouro-direto`, para metrica (que e *pull* e mora la):
+- [x] No repo do `tesouro-direto`, para metrica (que e *pull* e mora la):
       alvo do scrape em `infra/alloy/config.alloy` com `job=operacoes`;
       dashboard em `infra/grafana/dashboards/`;
       **o nome do dashboard na lista fixa do `apply-cloud.sh`** (copiar o JSON nao basta);
@@ -67,14 +67,14 @@ de referencia nao tem. Falta o que um script nao pode fazer.
       `hub-precos.json`, do proprio hub, esquecidos la de uma etapa anterior (ver
       `LEIA-ME-KIT.md`, "Escrever no repo certo e esquecer de rastrear la"). Sem commit
       la, o item nao esta pronto: some no primeiro clone limpo.
-- [ ] Rodar o `apply-cloud.sh` com `GC_GRAFANA_URL`, `GC_GRAFANA_TOKEN` e
+- [x] Rodar o `apply-cloud.sh` com `GC_GRAFANA_URL`, `GC_GRAFANA_TOKEN` e
       `TELEGRAM_BOT_TOKEN` **exportados na invocacao** — o script nao le o `.env`, e a
       guarda \`\${VAR:?}\` so testa vazio: um placeholder passa por ela e cala o Telegram
       de todos os servicos, com o script reportando sucesso.
-- [ ] **Orcamento de memoria da VPS.** Ela tem 2GB e UM nucleo, ja dividida entre TD,
+- [x] **Orcamento de memoria da VPS.** Ela tem 2GB e UM nucleo, ja dividida entre TD,
       Hub e broker. Servico novo muda o teto dos VIZINHOS, nao so o seu (secao 10.14).
       Decida o teto deste antes do primeiro deploy, e revise os outros.
-- [ ] Semear a memoria do projeto: ela e **por caminho**, entao este repo nasce com a
+- [x] Semear a memoria do projeto: ela e **por caminho**, entao este repo nasce com a
       dele vazia. Peca: *"leia o LEIA-ME-KIT.md e grave na memoria do projeto: o
       criterio de pronto do F1, onde ficam as licoes aprendidas, e os limites de
       recurso da VPS"*.
