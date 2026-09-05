@@ -1,9 +1,9 @@
-\getenv hub_db_name OPERACOES_DB_NAME
-\if :{?hub_db_name}
+\getenv operacoes_db_name OPERACOES_DB_NAME
+\if :{?operacoes_db_name}
 \else
-  \set hub_db_name 'operacoes'
+  \set operacoes_db_name 'operacoes'
 \endif
-SELECT set_config('operacoes.provision_expected_db', :'hub_db_name', false);
+SELECT set_config('operacoes.provision_expected_db', :'operacoes_db_name', false);
 
 DO $$
 DECLARE
@@ -16,14 +16,14 @@ BEGIN
 END
 $$;
 
-\getenv hub_app_password OPERACOES_APP_PASSWORD
-\if :{?hub_app_password}
+\getenv operacoes_app_password OPERACOES_APP_PASSWORD
+\if :{?operacoes_app_password}
 \else
-  \set hub_app_password ''
+  \set operacoes_app_password ''
 \endif
 
 \o /dev/null
-SELECT set_config('operacoes.provision_password', :'hub_app_password', false);
+SELECT set_config('operacoes.provision_password', :'operacoes_app_password', false);
 \o
 
 BEGIN;

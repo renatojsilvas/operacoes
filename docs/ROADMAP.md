@@ -35,7 +35,7 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
 
   **Prompt:**
   ```
-  Crie o esqueleto da solucao seguindo o molde em ../hub-precos: Operacoes.API,
+  ultracode Crie o esqueleto da solucao seguindo o molde em ../hub-precos: Operacoes.API,
   Operacoes.Application, Operacoes.Domain, Operacoes.Infrastructure, mais
   Directory.Build.props, Dockerfile multi-stage, Serilog com CorrelationId,
   health/metrics e migrations no boot conectando como role `operacoes`. SEM endpoints
@@ -49,6 +49,29 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   com metrica no Grafana. Ao final rode ./scripts/verificar-f1.sh e me mostre a saida
   — nao marque nada como pronto sem ela.
   ```
+
+  <br>**Estado em 2026-09-05 (não marque o checkbox — `./scripts/verificar-f1.sh`
+  reporta 5 OK, 1 FALHA e 3 SKIP neste momento):**
+
+  Pronto: os 4 projetos e o esqueleto Serilog+CorrelationId+health/metrics+migration-
+  no-boot em `src/`; `tests/*.Architecture.Tests` copiado do `hub-precos` com o
+  controle positivo da §10.8; CI corrigido — as asserções herdadas do molde que não se
+  aplicam a esta fase (`/v1/instruments`, `TD_API_KEY`, backlog de `outbox`,
+  smoke test do relay, guarda de colisão citando `operacoes-rabbitmq`) foram removidas
+  ou substituídas por equivalente que existe agora (ver PADROES §10.20); serviço do
+  compose renomeado de `app` para `operacoes` depois de medir os aliases já ocupados
+  na rede `plataforma` (PADROES §10.1); limites de recurso do compose de produção
+  (`cpu_shares: 512`, `memory: 192m`) vindos de medição real na VPS, não herdados do
+  hub (LEIA-ME-KIT, "Armadilhas de infra", item 9); fiação de observabilidade
+  (scrape, dashboard, regra de alerta) **escrita** no repo `tesouro-direto-api`.
+
+  Falta: secrets do deploy cadastrados no GitHub (`VPS_HOST`, `VPS_USER`,
+  `VPS_SSH_KEY` e os do serviço); o primeiro merge deployando sozinho pela pipeline
+  (prova 1); commitar no `tesouro-direto-api` os arquivos de observabilidade que hoje
+  estão `??` (não rastreados) lá — sem isso, o `apply-cloud.sh` os ignora; rodar o
+  `apply-cloud.sh` de fato; e um alerta disparado de propósito chegando no Telegram
+  (prova 5, a única que prova a corrente inteira). Ver `COMECE-AQUI.md`, seção
+  "Fora deste repo", para o detalhe de cada um.
 
 - [ ] **F2** — schema do Operações como migrations EF, snake_case, índices nomeados.
 

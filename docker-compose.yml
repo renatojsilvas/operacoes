@@ -1,5 +1,5 @@
 services:
-  app:
+  operacoes:
     build: .
     restart: unless-stopped
     environment:
@@ -25,6 +25,17 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    # O nome do serviço não pode ser genérico ("app"): o Compose registra um alias DNS
+    # igual ao NOME DO SERVIÇO em toda rede em que ele entra, e isso vale mesmo com
+    # container_name definido — "aliases:" ACRESCENTA, não substitui esse alias (medido
+    # na VPS: o container do tesouro-direto responde por "tesouro-direto-app" E "app" ao
+    # mesmo tempo). Um serviço chamado "app" entrando na "plataforma" arrisca colidir com
+    # QUALQUER outro "app" que já esteja lá — é o incidente do PADROES.md §10.1, que
+    # derrubou o front do tesouro-direto no Hub por colisão de alias DNS. Ao contrário do
+    # "app" do hub-precos (que fica de fora da "plataforma" porque o hub é dono do
+    # broker), o operacoes não tem broker próprio: precisa falar com o
+    # plataforma-rabbitmq do hub pela rede compartilhada, então entra na "plataforma" sim
+    # — mas com nome único: "operacoes".
     networks:
       - default
       - plataforma
