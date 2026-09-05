@@ -55,7 +55,7 @@ A role `operacoes` é global ao cluster (roles não pertencem a um database). O
 (sem alterar nada) se `current_database()` não bater com a variável de
 ambiente `OPERACOES_DB_NAME` (default `'operacoes'`). Rodando contra `operacoes`, não é
 preciso definir nada. Rodando contra outro database (ex.: um futuro
-`hub_e2e`), passe `-e OPERACOES_DB_NAME=hub_e2e` além de `-d hub_e2e` — sem
+`operacoes_e2e`), passe `-e OPERACOES_DB_NAME=operacoes_e2e` além de `-d operacoes_e2e` — sem
 isso, o comando aborta em vez de rotacionar a senha da role `operacoes` de
 verdade e abrir o database errado para `operacoes`.
 
@@ -105,7 +105,7 @@ complicação e mantém o SQL simples e portável.
 
 O bloco de `REASSIGN`/troca de ownership de uma role legada (`app`, no
 tesouro-direto) para a role nova, e os comentários sobre as tarefas
-79-A/79-B daquele repo. O Hub é greenfield: não há role legada nem objeto
+79-A/79-B daquele repo. O Operacoes é greenfield: não há role legada nem objeto
 pré-existente para reassinar.
 
 O bloco final de GRANTs explícitos em `public` (schema, tabelas,

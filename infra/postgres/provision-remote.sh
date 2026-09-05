@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Provisiona o database e a role do Hub num Postgres COMPARTILHADO já existente
+# Provisiona o database e a role do Operacoes num Postgres COMPARTILHADO já existente
 # (o caminho da VPS), em vez do container próprio do docker-compose.yml local.
 #
 # POR QUE ESTE SCRIPT EXISTE, e por que `operacoes-role.sql` não basta sozinho:
@@ -25,7 +25,7 @@
 #   OPERACOES_APP_PASSWORD  (obrigatória) senha da role `operacoes`
 #   PG_CONTAINER      (default: tesouro-direto-db) container do Postgres compartilhado
 #   PG_ADMIN_USER     (default: postgres) role admin de bootstrap do cluster
-#   OPERACOES_DB_NAME       (default: operacoes) nome do database do Hub
+#   OPERACOES_DB_NAME       (default: operacoes) nome do database do Operacoes
 set -euo pipefail
 
 : "${OPERACOES_APP_PASSWORD:?OPERACOES_APP_PASSWORD é obrigatória (senha da role operacoes)}"

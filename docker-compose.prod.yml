@@ -8,9 +8,11 @@ services:
       - ConnectionStrings__DefaultConnection=Host=${OPERACOES_DB_HOST:-tesouro-direto-db};Port=5432;Database=${OPERACOES_DB_NAME:-operacoes};Username=operacoes;Password=${OPERACOES_APP_PASSWORD:?OPERACOES_APP_PASSWORD e obrigatorio (senha da role operacoes no Postgres compartilhado)}
       - ApiKey__Key=${OPERACOES_API_KEY:?OPERACOES_API_KEY e obrigatorio (chave que o operacoes exige de quem o chama)}
       - Loki__Uri=${OPERACOES_LOKI_URI:-http://alloy:3100}
-      - RabbitMq__Host=plataforma-rabbitmq
-      - RabbitMq__User=${RABBITMQ_USER:?RABBITMQ_USER e obrigatorio (usuario do broker; guest nao autentica fora de localhost)}
-      - RabbitMq__Password=${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD e obrigatorio (senha do broker)}
+      # RabbitMq__*: sem valor aqui de proposito. O F1 e esqueleto — nao ha cliente
+      # RabbitMQ, outbox nem relay no codigo (ver docs/ROADMAP.md) — entao uma variavel
+      # obrigatoria (${VAR:?...}) para uma config que a aplicacao ignora so derrubaria
+      # o deploy por nada. Volta junto com o relay no F4, quando a aplicacao passar a
+      # falar de verdade com o broker `plataforma-rabbitmq`.
 
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]

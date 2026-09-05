@@ -206,6 +206,21 @@ tinham a ver com a mudança. Desligue com `TESTCONTAINERS_RYUK_DISABLED=true` no
 saiba reconhecer o padrão: suíte inteira falhando de uma vez, rápido demais para ter
 executado, é infraestrutura comum — não é o seu código.
 
+**9. Orçamento do vizinho se confere ANTES do deploy, e é barato.**
+Medido na VPS antes de qualquer deploy do `operacoes`, em dois comandos por SSH: `nproc`
+= **1**; memória total 1967 MB com 1035 disponíveis; `tesouro-direto-alloy` em **169 MiB
+de um teto de 192 MiB — 88%**, e ele é justamente quem recebe carga quando um serviço
+novo ganha alvo de scrape. Também medido: `hub-precos-app` roda **sem limite nenhum**
+(`HostConfig.Memory=0`), então o GC dele enxerga os 1,9 GB do host e não um cgroup — é a
+§10.12 do `PADROES` acontecendo agora, não em retrospecto. E a soma dos tetos de CPU já
+configurados chega a **2,7 núcleos num host de 1** — confirma a §10.13: teto rígido ali
+não contém nada.
+A lição de condução, não de infra: essas três medições custaram **dois comandos por
+SSH** e foram feitas **antes** de escolher qualquer número para o serviço novo. É o
+contraexemplo de "Dimensionar recurso sem medir, e chamar o número de folgado" — o teto
+de 192 MB do serviço novo deixou de ser herdado do hub e passou a ter base própria: o
+par equivalente, `hub-precos-app`, usa 95,87 MiB.
+
 ---
 
 # Erros de orquestração no `hub` — o que o CONDUTOR errou, não o executor
@@ -442,6 +457,21 @@ perguntar onde estavam as lições.
 **Regra:** ao fechar uma etapa, o checklist não é "eu registrei?" e sim "está no arquivo
 que a próxima pessoa vai abrir?". Commit e PR são registro de **quando**; `PADROES.md` e
 este arquivo são registro de **o que não repetir**.
+
+## Escrever no repo certo e esquecer de rastrear lá
+
+Variante da seção anterior, achada ao conferir a fiação do `operacoes`:
+`infra/grafana/cloud/rules-hub.yaml` e `infra/grafana/dashboards/hub-precos.json` — os
+arquivos de alerta e dashboard do **próprio hub** — estavam no repo do `tesouro-direto`
+como arquivos **não rastreados** (`??` no `git status`), nunca commitados. Não é o erro
+de "escrevi no lugar errado": o arquivo nasceu no repo certo e nunca foi versionado, e
+por isso some no primeiro clone limpo, e o `apply-cloud.sh` volta a pular o bloco em
+silêncio — o mesmo sintoma de "ausente — pulando" que a seção "O que o F1 tem que
+alcançar" descreve para um `rules.yaml` que nunca chegou a ser copiado.
+
+**Regra:** depois de escrever arquivo de observabilidade no repo vizinho, rode `git
+status` **lá** e confirme que ele está rastreado. "Existe no meu disco" não é "existe no
+repo".
 
 ## Dois vícios de relato
 

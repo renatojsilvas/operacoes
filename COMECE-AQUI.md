@@ -14,19 +14,40 @@ de referencia nao tem. Falta o que um script nao pode fazer.
 
 ## 2. Ainda por fazer neste repo
 
-- [ ] `git init` e primeiro commit; criar o repo no GitHub.
-- [ ] Clonar o molde como irmao: `git clone <tesouro-direto> ../tesouro-direto-api`
-      (o nome do diretorio precisa ser exatamente esse) e `/add-dir` na sessao.
-- [ ] **Portar o CODIGO do molde** (nao deste repo): os 4 projetos, `Result`/`Error`,
-      `ResultExtensions`, `MapReadGet`, `ApiKeyMiddleware`, CorrelationId, Serilog.
-      Regra de ouro do `CLAUDE.md`: localize o equivalente no molde e siga.
-- [ ] Copiar `tests/*.Architecture.Tests/` do `hub-precos` — a versao de la tem o
-      **controle positivo** da secao 10.8, que o molde nao tem.
-- [ ] `Operacoes.sln` e os csproj.
-- [ ] Reescrever o `README.md`.
-- [ ] Revisar `docs/ROADMAP.md`: veio como template, com a fila do hub.
-- [ ] Conferir `.env.example` e os composes: os nomes foram substituidos, mas os
-      **valores** (portas, limites de recurso) sao do hub e precisam de decisao.
+- [x] `git init` e primeiro commit; criar o repo no GitHub. Confirmado: `git log`
+      mostra `a93e750` (first commit) e `18e730d` (kit); `gh repo view
+      renatojsilvas/operacoes` resolve o repo remoto.
+- [x] Clonar o molde como irmao: `../hub-precos` (o molde) e `../tesouro-direto-api`
+      (referencia secundaria) existem os dois em disco, ao lado deste repo.
+- [x] **Portar o CODIGO do molde** (nao deste repo): os 4 projetos existem em `src/`
+      (`Operacoes.API/Application/Domain/Infrastructure`), com `Result`/`IResult`
+      (`Domain/Common`), `ResultExtensions` e `SerilogExtensions` (`API/Extensions`),
+      `ApiKeyMiddleware` e `CorrelationIdMiddleware` (`API/Middleware`). Confirmado por
+      `find src -iname "*Result*" -o -iname "*ApiKey*" -o -iname "*Correlation*"`.
+      **Nota:** `MapReadGet`/`ReadEndpointExtensions` ainda **não** existe — e não
+      deveria: este F1 não tem endpoint de leitura de negócio (`GET /v1/instruments`
+      equivalente só nasce no F5). Portar o helper sem um GET que o use seria molde sem
+      consumidor; confirme de novo ao abrir o F5.
+- [x] Copiar `tests/*.Architecture.Tests/` do `hub-precos` — `tests/
+      Operacoes.Architecture.Tests/` existe com `CodeConventionTests.cs`,
+      `DependencyTests.cs`, `DomainConventionTests.cs`,
+      `ExceptionHandlingConventionTests.cs` (o controle positivo da §10.8).
+- [x] `Operacoes.sln` e os csproj. Confirmado: `Operacoes.sln` na raiz, 9 `.csproj`
+      (4 em `src/`, 5 em `tests/`).
+- [x] Reescrever o `README.md`. Confirmado: conteúdo é específico do `operacoes`
+      (descrição do serviço, `docker compose up -d`, os dois segredos obrigatórios),
+      não o template do hub.
+- [x] Revisar `docs/ROADMAP.md`: já não é o template do hub — tem a fila F1–F5
+      derivada do `ARQUITETURA.md` §6/§9, com prompt próprio por fase.
+- [x] Conferir `.env.example` e os composes: os nomes foram substituidos e os
+      **valores** já refletem decisão, não herança cega — o serviço no compose local e
+      no de produção chama-se `operacoes` (não `app`; ver `PADROES.md` §10.1), as
+      portas (5081 app, 5434 db) evitam colisão com as do hub (5080, 5433), e os
+      limites de recurso (`cpu_shares: 512`, `memory: 192m`) vêm de medição na VPS —
+      ver `LEIA-ME-KIT.md`, "Armadilhas de infra", item 9. O comentário no
+      `docker-compose.prod.yml` ainda descreve os limites como "ponto de partida, não
+      número medido"; isso está desatualizado à luz do item 9 e vale revisar o texto
+      do comentário, não o número.
 
 ## 3. Fora deste repo
 
@@ -38,6 +59,14 @@ de referencia nao tem. Falta o que um script nao pode fazer.
       dashboard em `infra/grafana/dashboards/`;
       **o nome do dashboard na lista fixa do `apply-cloud.sh`** (copiar o JSON nao basta);
       regras como `rules-operacoes.yaml`, **nunca** `rules.yaml`.
+      **Estado parcial, nao check:** os quatro arquivos ja existem em disco em
+      `../tesouro-direto-api` (`infra/alloy/config.alloy`, `infra/grafana/dashboards/
+      operacoes.json`, `infra/grafana/cloud/rules-operacoes.yaml`, e a entrada no
+      `apply-cloud.sh`), mas `git status` naquele repo mostra **`??` (nao rastreado)**
+      para os dois `.json`/`.yaml` novos — e tambem para `rules-hub.yaml` e
+      `hub-precos.json`, do proprio hub, esquecidos la de uma etapa anterior (ver
+      `LEIA-ME-KIT.md`, "Escrever no repo certo e esquecer de rastrear la"). Sem commit
+      la, o item nao esta pronto: some no primeiro clone limpo.
 - [ ] Rodar o `apply-cloud.sh` com `GC_GRAFANA_URL`, `GC_GRAFANA_TOKEN` e
       `TELEGRAM_BOT_TOKEN` **exportados na invocacao** — o script nao le o `.env`, e a
       guarda \`\${VAR:?}\` so testa vazio: um placeholder passa por ela e cala o Telegram
