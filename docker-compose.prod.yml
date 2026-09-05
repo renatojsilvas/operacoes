@@ -1,0 +1,48 @@
+services:
+  operacoes:
+    build: .
+    container_name: operacoes-app
+    restart: unless-stopped
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=${OPERACOES_DB_HOST:-tesouro-direto-db};Port=5432;Database=${OPERACOES_DB_NAME:-operacoes};Username=operacoes;Password=${OPERACOES_APP_PASSWORD:?OPERACOES_APP_PASSWORD e obrigatorio (senha da role operacoes no Postgres compartilhado)}
+      - ApiKey__Key=${OPERACOES_API_KEY:?OPERACOES_API_KEY e obrigatorio (chave que o operacoes exige de quem o chama)}
+      - Loki__Uri=${OPERACOES_LOKI_URI:-http://alloy:3100}
+      - RabbitMq__Host=plataforma-rabbitmq
+      - RabbitMq__User=${RABBITMQ_USER:?RABBITMQ_USER e obrigatorio (usuario do broker; guest nao autentica fora de localhost)}
+      - RabbitMq__Password=${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD e obrigatorio (senha do broker)}
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+    # LIMITES: ponto de partida, nao numero medido. A VPS tem 2GB e UM nucleo,
+    # dividida com o tesouro-direto, o hub e o broker — servico novo muda o teto dos
+    # VIZINHOS, nao so o seu (PADROES 10.14). Antes do primeiro deploy: rode
+    # `free -m` e `docker stats`, veja o que sobra, e ajuste AQUI e nos vizinhos.
+    # cpu_shares e PESO (vale sob contencao); o teto de cpus num host de 1 nucleo nao
+    # contem runaway nenhum, so corta rajada (10.13) — por isso 1.0.
+    cpu_shares: 512
+    memswap_limit: 192m
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 192m
+
+    networks:
+      tesouro-net:
+      plataforma:
+        aliases:
+          - operacoes-app
+
+networks:
+  # Ambas external: nenhuma pertence a este servico. A tesouro-net e criada pelo
+  # compose do tesouro-direto; a plataforma, pelo preflight do deploy.
+  tesouro-net:
+    external: true
+  plataforma:
+    external: true

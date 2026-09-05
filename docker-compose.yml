@@ -1,0 +1,61 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=operacoes;Username=operacoes;Password=${OPERACOES_APP_PASSWORD:?OPERACOES_APP_PASSWORD e obrigatorio no .env (senha da role operacoes)}
+      - ApiKey__Key=${OPERACOES_API_KEY:?OPERACOES_API_KEY e obrigatorio no .env (chave que o operacoes exige de quem o chama)}
+      # O broker e servico da PLATAFORMA e nao sobe aqui. Para tê-lo localmente:
+      #   docker network create plataforma   (uma vez)
+      #   docker compose -f ../hub-precos/docker-compose.yml up -d plataforma-rabbitmq
+      - RabbitMq__Host=plataforma-rabbitmq
+      - RabbitMq__User=${RABBITMQ_USER:-guest}
+      - RabbitMq__Password=${RABBITMQ_PASSWORD:-guest}
+    ports:
+      # Portas do hub: 5080 (app) e 5433 (pg). Estas sao as seguintes livres; se
+      # colidir com outro servico seu, troque aqui e no README.
+      - "127.0.0.1:5081:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - default
+      - plataforma
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PG_ADMIN_PW:-admin123}
+      POSTGRES_DB: operacoes
+      OPERACOES_APP_PASSWORD: ${OPERACOES_APP_PASSWORD:?OPERACOES_APP_PASSWORD e obrigatorio no .env}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/initdb:/docker-entrypoint-initdb.d:ro
+      - ./infra/postgres/sql:/opt/operacoes/sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d operacoes"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  pgdata:
+
+networks:
+  # Rede compartilhada da plataforma, onde vive o broker. External de proposito: ela
+  # NAO e deste servico — se este compose a criasse, um "docker compose down" daqui a
+  # removeria por baixo dos outros. Crie uma vez com: docker network create plataforma
+  plataforma:
+    external: true
