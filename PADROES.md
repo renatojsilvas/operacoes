@@ -657,3 +657,61 @@ a §10.23 outra vez.
 **Corolário sobre onde o defeito nasceu:** o `hub-precos` não tem endpoint de escrita, então
 nenhum valor decimal do molde jamais atravessou um contrato HTTP vindo de fora. Comparar com
 o molde por fidelidade **não** revelaria isto — complemento exato da §10.10.
+
+### 10.26. Publisher confirms de um lote se aguardam UM A UM, não em bloco
+
+Ao publicar um lote com publisher confirms ligados, aguarde a confirmação de cada mensagem
+**antes de publicar a próxima**. O padrão "dispara todas, empilha as tasks, aguarda depois
+contando" publica fisicamente o que você não vai marcar.
+
+**Por quê:** achado em revisão adversarial no F4 do `operacoes`, provado contra broker real.
+O relay lê `WHERE publicado_em IS NULL ORDER BY id LIMIT n` e marca só o **maior prefixo
+contíguo confirmado** — regra correta, e ela não era o problema. O problema é que as
+mensagens do lote saíam todas juntas antes do primeiro `await`. Quando a mensagem de menor
+`id` falha de forma **persistente** (fila destino com `x-max-length` + `x-overflow=reject-publish`
+cheia, por consumidor parado), o resultado é:
+
+1. o publisher estoura no `await` do índice 0, com `confirmados == 0`, e devolve falha;
+2. o handler não marca nada — corretamente, do ponto de vista dele;
+3. mas as mensagens 2..N **já foram aceitas pelo broker**, porque foram disparadas antes;
+4. no tick seguinte o mesmo lote é relido (nada foi marcado) e 2..N são republicadas.
+
+Indefinidamente. O backlog atrás da mensagem-veneno nunca avança e as mensagens boas são
+amplificadas sem limite — medido: 3 ciclos sobre `[restrita, livre, livre]` deixaram **6**
+mensagens na fila livre. Isso **não** é o at-least-once que a ADR-3 aceita: at-least-once é
+duplicata limitada por uma janela de crash, não um laço infinito de reenvio.
+
+**Guarda:** `await` de cada publish dentro do laço. Aí `confirmados` passa a ser exatamente o
+prefixo contíguo **realmente entregue**, que é o que o handler já assumia. O custo é o
+pipelining dos confirms — irrelevante quando o ciclo é de segundos e o lote de centenas: a
+ordem de grandeza de 100 confirms sequenciais em rede local é de centenas de milissegundos
+contra um ciclo de 5 s. **Estimativa, não medição** — o maior lote coberto por teste aqui tem
+5 mensagens; se algum dia o lote crescer, meça antes de confiar nesta frase.
+
+**Não tente pular o veneno.** Marcar 2..N e deixar a 1 pendente parece resolver e quebra o
+contrato: dedupe por chave natural dá **idempotência, não comutatividade**. Um `estorno` que
+chega antes do trade que ele estorna faz o lookup de `ref_externa` não encontrar nada, e a
+Custódia grava `ref_estorno = NULL` — um ajuste apontando para o nada, que a reentrega nunca
+conserta, porque `UNIQUE (cliente_id, ref_externa)` torna o retry um no-op.
+
+**Política de mensagem-veneno** (contador de tentativas, parking, DLX) é peça própria, que a
+ARQUITETURA não prevê. Enquanto ela não existe, é a serialização que torna a ausência dela
+sobrevivível: o pior caso vira **estacionar visivelmente** — o backlog envelhece e o alerta de
+idade dispara — em vez de amplificar em silêncio. Em at-least-once, parar é o modo de falha
+certo.
+
+**Corolário sobre o rótulo:** `confirmados == 0` não significa "broker fora do ar". Separe
+`PublicacaoRejeitada` (nack: broker de pé, fila destino recusando) de `BrokerIndisponivel`
+(não conectou) — os dois mandam o operador para lados opostos, e o alerta que não distingue
+manda para o errado. Descubra o tipo da exceção **empiricamente** contra o broker real, nunca
+por suposição: aqui é `PublishException`, e ela também cobriria `basic.return` se o publish
+usasse `mandatory: true`.
+
+**Corolário sobre o molde:** este código é porte fiel do `hub-precos`, e o defeito está lá
+também — verificado lendo `../hub-precos/src/Hub.Infrastructure/Messaging/RabbitMqEventPublisher.cs`,
+que tem o mesmo "dispara todas, aguarda depois". E lá ele é mais exposto por natureza, não por
+volume medido: o Hub ingere preços continuamente, enquanto esta outbox só recebe evento por
+ação manual de um usuário. Fidelidade ao molde não é motivo para replicar
+defeito provado — é desvio **por correção**, e ele pede tarefa no repo de origem. Ver §10.10
+e §10.20: comparar com o molde acha o que faltou e o que sobrou copiado, mas **não acha o que
+está errado nos dois**.

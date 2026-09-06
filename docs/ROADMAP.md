@@ -371,6 +371,32 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   <br>**Pronto:** `POST /operacoes` seguido de mensagem chegando numa fila de teste
   bindada em `trades.registered`, e a linha da outbox com `publicado_em`.
 
+  <br>**Estado (2026-09-06): implementado e revisado, NÃO fechado** — o checkbox continua
+  desmarcado de propósito, porque o critério de pronto acima é uma prova em produção que ainda
+  não foi feita. O código está na árvore: relay em Quartz, publisher confirms, `PublicacaoRejeitada`
+  separado de `BrokerIndisponivel`, 398 testes, cobertura 91,61%.
+
+  Duas revisões em série acharam coisas disjuntas. O `guardiao-padroes` achou o
+  `infra/grafana/README.md` descrevendo o repo pré-F4 (10 painéis/2 regras, contra 14/4
+  entregues no mesmo diff). O `revisor` achou o defeito grave: o publish disparava o lote
+  inteiro antes do primeiro `await`, então uma mensagem-veneno na cabeça da fila fazia as
+  seguintes serem republicadas a cada tick, sem limite — medido em 3 ciclos, 6 entregas. A
+  correção (aguardar cada confirm dentro do laço) está na `PADROES.md` §10.26, junto com o
+  motivo de NÃO se poder pular o veneno. O `advisor` também reprovou uma supressão de warning
+  do EF que tinha ido parar no caminho de produção (`LEIA-ME-KIT.md`).
+
+  **O mesmo defeito está no `hub-precos`**, de onde este código foi portado — pede tarefa
+  própria naquele repo, não é consertável daqui.
+
+  **Bloqueio para o merge:** os secrets `RABBITMQ_USER` e `RABBITMQ_PASSWORD` não existem
+  neste repositório (`gh secret list`). O `docker-compose.prod.yml` passou a exigi-los sem
+  default, então o deploy falha alto e claro até que sejam criados com os mesmos valores que o
+  `hub-precos` usa — é ele quem provisionou o broker.
+
+  **A prova em produção deixa lixo:** ela grava numa tabela append-only, onde `UPDATE`/`DELETE`
+  são bloqueados por trigger. Decida a limpeza (`TRUNCATE`, enquanto for o único dado) ANTES
+  de rodar o POST — ver `LEIA-ME-KIT.md`, "Teste manual em tabela append-only".
+
 - [ ] **F5** — `GET /operacoes/instrumentos?query=...` (§6): proxy do catálogo do Hub
   com cache curto, no padrão `MapReadGet` do molde. Conveniências que são **de
   Operações, não do Hub**: priorizar instrumentos que o cliente já possui, e ocultar

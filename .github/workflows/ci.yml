@@ -57,14 +57,17 @@ jobs:
       # para TD_APP_PASSWORD: o bug não aparece em teste local porque `docker compose` lê o
       # `.env` do diretório automaticamente e mascara a variável faltante — para reproduzir
       # a condição do CI use `--env-file /dev/null`).
-      # RabbitMq__* não entra aqui: nenhum cliente RabbitMQ, outbox nem relay ainda (ver
-      # docs/ROADMAP.md). Volta neste gate junto com o serviço plataforma-rabbitmq no F4.
+      # F4: docker-compose.prod.yml agora também exige ${RABBITMQ_USER:?...} e
+      # ${RABBITMQ_PASSWORD:?...} (credencial do broker plataforma-rabbitmq, provisionado
+      # pelo hub-precos — não sobe neste compose). Mesma lógica das quatro dummies acima.
       - name: Compose config gate (sintaxe + tags existem no registry)
         env:
           OPERACOES_APP_PASSWORD: dummy
           OPERACOES_API_KEY: dummy
           OPERACOES_HUB_BASE_URL: http://hub-precos-app:8080/
           OPERACOES_HUB_API_KEY: dummy
+          RABBITMQ_USER: dummy
+          RABBITMQ_PASSWORD: dummy
         run: |
           set -e
           docker compose -f docker-compose.yml config -q
@@ -104,7 +107,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script_stop: true
-          envs: OPERACOES_APP_PASSWORD,OPERACOES_API_KEY,OPERACOES_HUB_BASE_URL,OPERACOES_HUB_API_KEY
+          envs: OPERACOES_APP_PASSWORD,OPERACOES_API_KEY,OPERACOES_HUB_BASE_URL,OPERACOES_HUB_API_KEY,RABBITMQ_USER,RABBITMQ_PASSWORD
           script: |
             set -e
             REPO_DIR=/opt/operacoes
@@ -120,8 +123,8 @@ jobs:
             }
             # "plataforma" é diferente de "tesouro-net": é a rede da PLATAFORMA (operacoes
             # não é dono dela), criada aqui na primeira vez que qualquer serviço precisar
-            # dela — hoje é só o plataforma-rabbitmq do Hub, amanhã pode ser custodia ou
-            # o próprio operacoes (a partir do F4, quando o relay outbox existir). Por ser
+            # dela — hoje é o plataforma-rabbitmq do Hub e, desde o F4, o próprio operacoes
+            # (que entra nela para falar com esse broker via RelayOutboxJob). Por ser
             # external:true no compose, o "up" abortaria se ela não existisse; diferente
             # de tesouro-net, aqui não há por que abortar o deploy — criar é seguro e
             # idempotente (docker network create falha alto se já existir e o inspect
@@ -176,28 +179,58 @@ jobs:
               exit 1
             fi
 
+            # F4: RABBITMQ_USER/RABBITMQ_PASSWORD — credencial do broker plataforma-rabbitmq,
+            # que o RelayOutboxJob usa para publicar. Normalizadas na ORIGEM (mesmo padrão das
+            # quatro acima). ATENÇÃO PARA QUEM VÊ ISTO FALHAR PELA PRIMEIRA VEZ: estes dois
+            # secrets AINDA NÃO EXISTEM neste repositório (conferido com `gh secret list`: só
+            # havia OPERACOES_* e VPS_*) — é preciso criá-los agora, com o MESMO valor já usado
+            # pelo hub-precos (é quem provisionou o broker `plataforma-rabbitmq`; ver o secret
+            # RABBITMQ_USER/RABBITMQ_PASSWORD daquele repositório). Credencial divergente aqui
+            # não impede o boot (RabbitMq__* não faz parte de nenhum health check, de propósito
+            # — o relay fica fora do /health/ready), mas todo ciclo do relay falha em silêncio.
+            RABBITMQ_USER="$(printf '%s' "$RABBITMQ_USER" | tr -d '\r\n')"
+            if [ -z "$RABBITMQ_USER" ]; then
+              echo "ERRO: secret RABBITMQ_USER vazio (ou só com quebras de linha). É o usuário do broker"
+              echo "      plataforma-rabbitmq; sem ele o compose falha o boot do serviço operacoes"
+              echo "      (sem default guest em produção, de propósito). Se o secret ainda não existe"
+              echo "      neste repositório, crie-o com o MESMO valor já usado pelo hub-precos (é quem"
+              echo "      provisionou o broker)."
+              exit 1
+            fi
+
+            RABBITMQ_PASSWORD="$(printf '%s' "$RABBITMQ_PASSWORD" | tr -d '\r\n')"
+            if [ -z "$RABBITMQ_PASSWORD" ]; then
+              echo "ERRO: secret RABBITMQ_PASSWORD vazio (ou só com quebras de linha). É a senha do broker"
+              echo "      plataforma-rabbitmq; sem ela o compose falha o boot do serviço operacoes."
+              echo "      Se o secret ainda não existe neste repositório, crie-o com o MESMO valor já"
+              echo "      usado pelo hub-precos (é quem provisionou o broker)."
+              exit 1
+            fi
+
             # ATENÇÃO: este .env é reescrito POR COMPLETO a cada deploy — não é um merge com
             # o que já existe na VPS. Qualquer variável obrigatória (${VAR:?...} no compose)
             # que não entrar neste MESMO printf derruba o serviço no próximo "up", mesmo que
             # a variável já tivesse valor num .env anterior. Já houve incidente neste
             # ecossistema com um script sobrescrevendo o .env com só parte das variáveis e
-            # reportando sucesso — as obrigatórias têm que estar juntas aqui. RabbitMq__*
-            # volta a este printf junto com o relay, no F4.
-            printf 'OPERACOES_APP_PASSWORD=%s\nOPERACOES_API_KEY=%s\nOPERACOES_HUB_BASE_URL=%s\nOPERACOES_HUB_API_KEY=%s\n' \
-              "$OPERACOES_APP_PASSWORD" "$OPERACOES_API_KEY" "$OPERACOES_HUB_BASE_URL" "$OPERACOES_HUB_API_KEY" > .env
+            # reportando sucesso — as obrigatórias têm que estar juntas aqui, RabbitMq__*
+            # incluído (F4).
+            printf 'OPERACOES_APP_PASSWORD=%s\nOPERACOES_API_KEY=%s\nOPERACOES_HUB_BASE_URL=%s\nOPERACOES_HUB_API_KEY=%s\nRABBITMQ_USER=%s\nRABBITMQ_PASSWORD=%s\n' \
+              "$OPERACOES_APP_PASSWORD" "$OPERACOES_API_KEY" "$OPERACOES_HUB_BASE_URL" "$OPERACOES_HUB_API_KEY" "$RABBITMQ_USER" "$RABBITMQ_PASSWORD" > .env
             chmod 600 .env
 
             echo "== provisionamento do banco =="
             ./infra/postgres/provision-remote.sh
 
             echo "== guarda de colisão de alias em redes compartilhadas =="
-            # Exclui só operacoes-app: este compose sobe um único serviço no F1 (sem
-            # broker próprio). Quando o F4 acrescentar um segundo container aqui, ele
-            # entra nesta exclusão também — senão, num redeploy, o container se veria
-            # como "alien" de si mesmo e a guarda falsificaria colisão.
+            # Exclui só operacoes-app: este compose sobe um único serviço, sem broker
+            # próprio (o F4 acrescentou o relay outbox → RabbitMQ, não um container novo
+            # — o broker plataforma-rabbitmq é da PLATAFORMA, sobe no hub-precos, nunca
+            # aqui). Essa previsão de "F4 acrescenta um segundo container" não se
+            # cumpriu; a exclusão continua só operacoes-app.
             outros=$(docker ps --format '{{.Names}}' | grep -vx -e operacoes-app || true)
             servicos=$(OPERACOES_APP_PASSWORD=dummy OPERACOES_API_KEY=dummy \
               OPERACOES_HUB_BASE_URL=dummy OPERACOES_HUB_API_KEY=dummy \
+              RABBITMQ_USER=dummy RABBITMQ_PASSWORD=dummy \
               docker compose -f docker-compose.prod.yml config --services)
             for rede in tesouro-net plataforma; do
               if ! docker network inspect "$rede" >/dev/null 2>&1; then
@@ -228,10 +261,92 @@ jobs:
             docker compose -f docker-compose.prod.yml build
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
-            # O relay outbox → RabbitMQ (e com ele a verificação de credencial do broker
-            # PELA REDE, nunca por loopback — PADROES §10.2/§10.3) entra no F4, quando o
-            # serviço passar a ter cliente RabbitMQ de verdade. Não há nada para verificar
-            # aqui no F1.
+            echo "== verificando que a credencial do broker REALMENTE autentica (PADROES §10.2/§10.3) =="
+            # Provisionar credencial sem testá-la é afirmar sem evidência (§10.2), e o teste
+            # tem que passar PELA REDE, nunca por "docker exec" nem por loopback (§10.3) —
+            # senão a verificação passaria mesmo com a credencial errada. Container cliente à
+            # parte, na rede "plataforma", batendo na API de management do broker com a mesma
+            # credencial provisionada — é o caminho real que o RelayOutboxJob percorre.
+            #
+            # ADAPTAÇÃO AO CASO DO OPERACOES (diferente do molde hub-precos): o broker
+            # `plataforma-rabbitmq` NÃO é serviço deste repositório — quem o sobe é o
+            # hub-precos. Este step não pode virar pré-requisito do boot do operacoes (senão
+            # reintroduziríamos, por outra porta, o acoplamento que a ausência de depends_on/
+            # healthcheck do broker em docker-compose.prod.yml evita de propósito — o relay
+            # fica fora do /health/ready para que um broker fora do ar não derrube a API de
+            # escrita). Por isso ela roda AQUI, depois do "up -d" do operacoes e ANTES do seu
+            # "esperando ficar healthy": é uma verificação de DEPLOY (o operador precisa saber
+            # que a credencial confere), não um gate de disponibilidade da API — o container
+            # operacoes-app já subiu e vai ficar healthy (ou não) independentemente do
+            # resultado deste bloco.
+            #
+            # POR QUE ISTO É UM LAÇO, e não uma chamada única: o "up -d" retorna assim que os
+            # containers ARRANCAM, não quando ficam prontos, e o plataforma-rabbitmq pode
+            # estar subindo (ou ter sido reiniciado pelo deploy do hub-precos, que roda de
+            # forma independente deste). 000 (não conectou) e 401 (credencial errada) são
+            # diagnósticos DIFERENTES: o primeiro merece nova tentativa, o segundo não melhora
+            # com espera — falhar rápido nele evita gastar ~3 minutos para dar a mesma
+            # resposta. Por isso -sS -w '%{http_code}': "curl -s" sozinho transforma falha de
+            # conexão em saída vazia e apaga essa diferença.
+            #
+            # POR QUE OS DOIS DESFECHOS (401 x "nunca respondeu") REPROVAM O JOB DE FORMAS
+            # DIFERENTES: com script_stop: true, qualquer "exit 1" aqui reprova o job "deploy"
+            # do operacoes inteiro — inclusive o "esperando ficar healthy" e os smoke tests que
+            # vêm depois, que não dependem do broker. 401 é problema NOSSO e acionável (secret
+            # deste repo divergindo do que o broker aceitou), então continua reprovando: não tem
+            # o que o resto do job provaria que já não esteja quebrado por essa causa raiz. Já
+            # "nunca respondeu" (000 ou qualquer código diferente de 200/401 após as tentativas)
+            # é falha de um serviço de TERCEIROS (plataforma-rabbitmq, que quem sobe é o
+            # hub-precos) — reprovar o deploy do operacoes por isso acopla o veredito do NOSSO
+            # deploy à saúde de um repo vizinho, e o guarda-deploy passaria a ler "este commit
+            # NÃO chegou a produção" quando o container do operacoes subiu e está healthy de
+            # verdade. Por isso este ramo apenas avisa (::warning::) e segue para o "esperando
+            # ficar healthy" e os smoke tests: a publicação no broker fica retida na outbox até
+            # ele voltar (é a garantia da outbox — nada se perde), e os alertas
+            # operacoes-relay-falha-persistente e operacoes-outbox-backlog-velho cobrem esse
+            # cenário em runtime. Preserva-se assim o espírito da §10.2 (não afirmar sem
+            # evidência) só para o que É NOSSO: aqui a evidência que falta é de um serviço que
+            # este repositório não é dono.
+            docker pull -q curlimages/curl:8.11.0 >/dev/null 2>&1 || true
+            rabbit_auth_status=""
+            for _ in $(seq 1 36); do
+              rabbit_auth_status=$(docker run --rm --network plataforma curlimages/curl:8.11.0 \
+                -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+                -u "$RABBITMQ_USER:$RABBITMQ_PASSWORD" \
+                http://plataforma-rabbitmq:15672/api/whoami 2>/dev/null || true)
+              [ "$rabbit_auth_status" = "200" ] && break
+              [ "$rabbit_auth_status" = "401" ] && break
+              sleep 5
+            done
+            if [ "$rabbit_auth_status" = "401" ]; then
+              echo "ERRO: o management do plataforma-rabbitmq respondeu 401 para a credencial"
+              echo "      provisionada. O broker está DE PÉ e recusou usuário/senha:"
+              echo "      RABBITMQ_USER/RABBITMQ_PASSWORD (secrets deste repositório) divergem do"
+              echo "      que o broker aceitou no boot. Atenção: RABBITMQ_DEFAULT_USER/PASS só"
+              echo "      valem no PRIMEIRO boot do plataforma-rabbitmq, com o volume vazio — trocar"
+              echo "      este secret aqui não rotaciona a credencial de um broker que já tem"
+              echo "      dados. O operacoes não é dono do broker: se a senha precisa mudar de"
+              echo "      verdade, isso se faz no lado do hub-precos (rabbitmqctl change_password"
+              echo "      ou recriação do volume), e o secret aqui só passa a valer depois de"
+              echo "      sincronizado com o valor novo."
+              exit 1
+            fi
+            if [ "$rabbit_auth_status" != "200" ]; then
+              echo "::warning::management do plataforma-rabbitmq não respondeu em ~3 min (último código: ${rabbit_auth_status:-vazio}; 000 = não conectou)."
+              echo "AVISO: o management do plataforma-rabbitmq não respondeu em ~3 min (último"
+              echo "      código: ${rabbit_auth_status:-vazio}; 000 = não conectou). O operacoes NÃO"
+              echo "      sobe este broker — é serviço da PLATAFORMA, provisionado pelo hub-precos."
+              echo "      Verifique lá: o deploy/estado do hub-precos (é quem sobe o container do"
+              echo "      plataforma-rabbitmq) e se a rede docker 'plataforma' existe nesta VPS."
+              echo "      O deploy do operacoes PROSSEGUE: o container é válido e vai subir healthy"
+              echo "      independentemente deste broker (o relay outbox fica fora do /health/ready"
+              echo "      de propósito). A publicação fica RETIDA na outbox até o broker voltar —"
+              echo "      garantia da outbox, nada se perde. Os alertas"
+              echo "      operacoes-relay-falha-persistente e operacoes-outbox-backlog-velho cobrem"
+              echo "      esse cenário em runtime."
+            else
+              echo "    credencial do broker confere (200 em /api/whoami via rede 'plataforma')"
+            fi
 
             echo "== esperando ficar healthy =="
             timeout 300 bash -c 'until [ "$(docker inspect -f "{{.State.Health.Status}}" operacoes-app 2>/dev/null)" = "healthy" ]; do
@@ -273,6 +388,46 @@ jobs:
             fi
             echo "    com OPERACOES_API_KEY: 404 ok (autenticado, rota inexistente)"
 
+            echo "== smoke test do relay outbox (prova que está rodando, não só registrado) =="
+            # operacoes_relay_ciclos_total{outcome="success"} só sobe quando RelayOutboxJob
+            # TERMINA um ciclo com sucesso. Zero ou ausente aqui significa relay morto
+            # (agendamento desligado) ou falhando em todo ciclo — silencioso do lado de fora,
+            # porque o health check acima não passa por essa rota nenhuma.
+            #
+            # LIMITE HONESTO DESTA PROVA: ao contrário do hub-precos, a outbox do operacoes
+            # normalmente está VAZIA em produção (nada além do que os testes E2E manuais
+            # gerarem via POST /operacoes) — e um ciclo com outbox vazia fecha com
+            # outcome="success" SEM NUNCA FALAR COM O BROKER (não há evento pendente para
+            # publicar). Esta métrica prova só que o relay está agendado e alcançando o
+            # Postgres; NÃO prova que a publicação no RabbitMQ funciona — quem prova isso é a
+            # verificação de credencial acima (que testou o /api/whoami de verdade). A prova
+            # real de publicação de ponta a ponta é manual: um POST /operacoes seguido de
+            # conferir a mensagem chegando numa fila bindada ao exchange.
+            relay_sucesso=""
+            metrics=""
+            for _ in $(seq 1 12); do
+              metrics=$(docker exec operacoes-app curl -sf http://localhost:8080/metrics || true)
+              valor=$(echo "$metrics" | grep '^operacoes_relay_ciclos_total{outcome="success"}' | awk '{print $2}')
+              valor=${valor%.*}
+              if [ -n "$valor" ] && [ "$valor" != "0" ]; then
+                relay_sucesso="$valor"
+                break
+              fi
+              sleep 5
+            done
+
+            if [ -z "$relay_sucesso" ]; then
+              echo "ERRO: operacoes_relay_ciclos_total{outcome=\"success\"} ausente ou zero em"
+              echo "      /metrics após 60s de espera (cadência do job é de segundos, não minutos —"
+              echo "      Outbox:Relay:IntervaloSegundos)."
+              docker logs --tail 80 operacoes-app || true
+              exit 1
+            fi
+            echo "    operacoes_relay_ciclos_total{outcome=\"success\"}=$relay_sucesso"
+
+            outbox_pendentes_pos=$(echo "$metrics" | grep '^operacoes_outbox_pendentes ' | awk '{print $2}')
+            echo "    operacoes_outbox_pendentes=${outbox_pendentes_pos:-desconhecido (métrica ainda não gravada)}"
+
             echo "== deploy concluído =="
             docker image prune -f
         env:
@@ -280,6 +435,8 @@ jobs:
           OPERACOES_API_KEY: ${{ secrets.OPERACOES_API_KEY }}
           OPERACOES_HUB_BASE_URL: ${{ secrets.OPERACOES_HUB_BASE_URL }}
           OPERACOES_HUB_API_KEY: ${{ secrets.OPERACOES_HUB_API_KEY }}
+          RABBITMQ_USER: ${{ secrets.RABBITMQ_USER }}
+          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
 
   guarda-deploy:
     # PADROES §10.17: o `deploy` depende do `test`; um teste instável pula o deploy em

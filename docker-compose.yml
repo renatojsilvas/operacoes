@@ -11,9 +11,11 @@ services:
       # o alias "hub-precos-app" (nao "app" — PADROES §10.1).
       - Hub__BaseUrl=${OPERACOES_HUB_BASE_URL:?OPERACOES_HUB_BASE_URL e obrigatorio no .env (URL do Hub de Precos)}
       - Hub__ApiKey=${OPERACOES_HUB_API_KEY:?OPERACOES_HUB_API_KEY e obrigatorio no .env (chave que o operacoes envia ao Hub)}
-      # O broker e servico da PLATAFORMA e nao sobe aqui. Para tê-lo localmente:
+      # F4: o broker e servico da PLATAFORMA e nao sobe aqui. Para tê-lo localmente:
       #   docker network create plataforma   (uma vez)
       #   docker compose -f ../hub-precos/docker-compose.yml up -d plataforma-rabbitmq
+      # Em dev local guest/guest e aceitavel (§ do .env.example); em producao estas
+      # duas sao obrigatorias (docker-compose.prod.yml), sem default.
       - RabbitMq__Host=plataforma-rabbitmq
       - RabbitMq__User=${RABBITMQ_USER:-guest}
       - RabbitMq__Password=${RABBITMQ_PASSWORD:-guest}

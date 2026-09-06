@@ -3,7 +3,9 @@ using Operacoes.Application.Common.Interfaces;
 using Operacoes.Application.Operacoes;
 using Operacoes.Application.Outbox;
 using Operacoes.Infrastructure.Catalogo;
+using Operacoes.Infrastructure.Messaging;
 using Operacoes.Infrastructure.Observability;
+using Operacoes.Infrastructure.Outbox;
 using Operacoes.Infrastructure.Persistence;
 using Operacoes.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +15,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http.Resilience;
 using Npgsql;
 using Polly;
+using Quartz;
 
 namespace Operacoes.Infrastructure;
 
@@ -32,10 +35,15 @@ public static class DependencyInjection
             options.UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>()));
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<AppDbContext>());
         services.AddSingleton<IApiKeyMetrics, ApiKeyMetrics>();
+        services.AddSingleton<IBusinessMetrics, BusinessMetrics>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IOperacaoReadRepository, OperacaoReadRepository>();
         services.AddScoped<IOperacaoWriteRepository, OperacaoWriteRepository>();
         services.AddScoped<IOutboxWriteRepository, OutboxWriteRepository>();
+        services.AddScoped<IOutboxReadRepository, OutboxReadRepository>();
+        services.AddSingleton<RabbitMqConnectionProvider>();
+        services.AddScoped<IEventPublisher, RabbitMqEventPublisher>();
+        services.AddSingleton<RelayOutboxFalhaLogThrottle>();
         services.AddHttpClient<IHubCatalogoClient, HubCatalogoClient>((sp, client) =>
         {
             var config = sp.GetRequiredService<IConfiguration>();
@@ -52,6 +60,27 @@ public static class DependencyInjection
             }
         })
         .AddHubResilienceHandler(configuration);
+
+        var relayAgendamentoAtivo = configuration.GetValue<bool?>("Outbox:Relay:AgendamentoAtivo") ?? true;
+        var relayIntervaloSegundos = configuration.GetValue<int?>("Outbox:Relay:IntervaloSegundos") ?? 5;
+
+        services.AddQuartz(q =>
+        {
+            if (relayAgendamentoAtivo)
+            {
+                var relayJobKey = new JobKey("relay-outbox");
+                q.AddJob<RelayOutboxJob>(opts => opts.WithIdentity(relayJobKey));
+                q.AddTrigger(opts => opts
+                    .ForJob(relayJobKey)
+                    .WithIdentity("relay-outbox-trigger")
+                    .WithSimpleSchedule(x => x
+                        .WithIntervalInSeconds(relayIntervaloSegundos)
+                        .RepeatForever()
+                        .WithMisfireHandlingInstructionNextWithRemainingCount()));
+            }
+        });
+        services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
+
         return services;
     }
 
