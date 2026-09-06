@@ -208,6 +208,8 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   últimos defeitos vieram dos prompts e dos textos do orquestrador, não dos executores.
   Está no `LEIA-ME-KIT.md`; não feche o F3 na primeira revisão verde.
 
+  PR: operacoes #5.
+
 - [ ] **F3** — `POST /operacoes` com a **camada 2** da validação (§6.1, ADR-11).
 
   **Pré-requisitos herdados do F2 — leia antes de despachar:**
