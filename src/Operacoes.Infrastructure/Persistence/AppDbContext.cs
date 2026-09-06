@@ -1,5 +1,7 @@
 using Operacoes.Application.Common.Interfaces;
 using Operacoes.Domain.Common;
+using Operacoes.Domain.Operacoes;
+using Operacoes.Domain.Outbox;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -7,8 +9,10 @@ namespace Operacoes.Infrastructure.Persistence;
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IUnitOfWork
 {
-    // Sem DbSets de negócio: o F1 só prova migrations-no-boot funcionando com nada
-    // dentro. O F2 é quem cria as tabelas `operacoes` e `outbox` (ver docs/ROADMAP.md).
+    // F2 cria as tabelas `operacoes` e `outbox` (ver docs/ROADMAP.md). ESCRITA por EF (aqui),
+    // LEITURA por Dapper — não há ReadRepository ainda porque não há caso de uso de leitura no F2.
+    public DbSet<Operacao> Operacoes => Set<Operacao>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
