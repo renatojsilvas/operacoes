@@ -6,6 +6,11 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=operacoes;Username=operacoes;Password=${OPERACOES_APP_PASSWORD:?OPERACOES_APP_PASSWORD e obrigatorio no .env (senha da role operacoes)}
       - ApiKey__Key=${OPERACOES_API_KEY:?OPERACOES_API_KEY e obrigatorio no .env (chave que o operacoes exige de quem o chama)}
+      # F3: o Hub e servico externo (repo hub-precos), nao sobe aqui — mesma logica do
+      # broker abaixo. Se estiver rodando na rede "plataforma" compartilhada, aponte para
+      # o alias "hub-precos-app" (nao "app" — PADROES §10.1).
+      - Hub__BaseUrl=${OPERACOES_HUB_BASE_URL:?OPERACOES_HUB_BASE_URL e obrigatorio no .env (URL do Hub de Precos)}
+      - Hub__ApiKey=${OPERACOES_HUB_API_KEY:?OPERACOES_HUB_API_KEY e obrigatorio no .env (chave que o operacoes envia ao Hub)}
       # O broker e servico da PLATAFORMA e nao sobe aqui. Para tê-lo localmente:
       #   docker network create plataforma   (uma vez)
       #   docker compose -f ../hub-precos/docker-compose.yml up -d plataforma-rabbitmq

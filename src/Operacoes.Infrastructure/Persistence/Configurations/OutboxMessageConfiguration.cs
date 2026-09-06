@@ -29,9 +29,6 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
             .HasColumnType("jsonb")
             .IsRequired();
 
-        // Sem DEFAULT no servidor, replicando fielmente o hub-precos (docs/ROADMAP.md, F2): a
-        // aplicação sempre grava o valor explicitamente. INSERT manual sem essa coluna falha por
-        // NOT NULL — decisão deliberada, não descuido.
         builder.Property(o => o.CriadoEm)
             .HasColumnName("criado_em")
             .IsRequired();

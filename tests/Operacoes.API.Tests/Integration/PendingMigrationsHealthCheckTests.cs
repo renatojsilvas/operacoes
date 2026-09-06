@@ -10,13 +10,6 @@ using Operacoes.Infrastructure.Persistence;
 
 namespace Operacoes.API.Tests.Integration;
 
-// PADROES.md §10.18: AddDbContextCheck<T> só prova CanConnectAsync(), não prova schema. Este teste
-// prova o check adicional (PendingMigrationsHealthCheck) contra um Postgres real, simulando
-// pendência de forma honesta: aplica só a primeira migration (InitialCreate) via IMigrator,
-// deixando CriaSchemaOperacoes de fora de propósito, confere que /health/ready reprova, e só então
-// aplica o resto e confere que aprova. Ambiente "Testing" porque é o único em que o
-// DatabaseInitializer não migra sozinho no boot (ver DatabaseInitializer.cs) — sem isso, o boot já
-// aplicaria tudo e não haveria pendência para observar.
 public sealed class PendingMigrationsHealthCheckTests
 {
     private const string ConnectionStringEnvVar = "ConnectionStrings__DefaultConnection";
@@ -38,7 +31,6 @@ public sealed class PendingMigrationsHealthCheckTests
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 var migrator = db.GetService<IMigrator>();
 
-                // Aplica só até a primeira migration, deixando CriaSchemaOperacoes pendente de propósito.
                 await migrator.MigrateAsync(InitialCreateMigrationId);
             }
 
@@ -63,11 +55,6 @@ public sealed class PendingMigrationsHealthCheckTests
         }
     }
 
-    // PADROES.md §10.18, o segundo risco nomeado (defeito B do revisor): GetPendingMigrationsAsync()
-    // sozinho não detecta drift manual — o revisor provou isso dropando `operacoes` por fora com
-    // `__EFMigrationsHistory` intacta e o readiness respondeu 200. Este teste reproduz exatamente
-    // esse cenário contra um Postgres real e próprio (não o compartilhado da ApiTestFactory, para não
-    // contaminar as outras suítes com uma tabela dropada no meio da run).
     [Fact]
     public async Task HealthReady_ComTabelaDropadaPorFora_RespondeUnhealthy()
     {
@@ -94,8 +81,6 @@ public sealed class PendingMigrationsHealthCheckTests
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                // Drift manual: tabela dropada por fora, __EFMigrationsHistory permanece intacta —
-                // GetPendingMigrationsAsync() sozinho continuaria dizendo "zero pendências".
                 await db.Database.ExecuteSqlRawAsync("DROP TABLE operacoes CASCADE;");
             }
 
@@ -109,13 +94,6 @@ public sealed class PendingMigrationsHealthCheckTests
         }
     }
 
-    // PADROES.md §10.18/§10.22, defeito da segunda revisão adversarial: dropar `trg_operacoes_imutavel`
-    // por fora (com `__EFMigrationsHistory` e a tabela `operacoes` intactas) deixava /health/ready em
-    // 200 e o UPDATE/DELETE que antes falhava passava a funcionar em silêncio — a única guarda que
-    // impede corrupção irreversível em `operacoes` sumia sem ninguém notar. Este teste reproduz esse
-    // cenário exato contra um Postgres real e próprio (não o compartilhado da ApiTestFactory, mesmo
-    // racional do teste de tabela dropada acima), nos dois sentidos: 200 antes, drop da trigger, 503
-    // depois.
     [Fact]
     public async Task HealthReady_ComTriggerDeImutabilidadeDropadaPorFora_RespondeUnhealthy()
     {
@@ -142,9 +120,6 @@ public sealed class PendingMigrationsHealthCheckTests
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                // Drift manual: trigger dropada por fora, tabela e __EFMigrationsHistory permanecem
-                // intactas — GetPendingMigrationsAsync() e a sonda de tabelas ausentes continuariam
-                // dizendo "tudo certo".
                 await db.Database.ExecuteSqlRawAsync("DROP TRIGGER trg_operacoes_imutavel ON operacoes;");
             }
 

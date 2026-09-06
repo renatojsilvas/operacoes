@@ -48,22 +48,23 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      # Gate barato (segundos): docker-compose.prod.yml exige ${OPERACOES_APP_PASSWORD:?...}
-      # e ${OPERACOES_API_KEY:?...} (sem default em produção, de propósito). Este bloco
-      # env: é a ÚNICA fonte das obrigatórias aqui — o runner não tem `.env` (não é
-      # versionado); sem estas dummies o `config -q` do docker-compose.prod.yml abaixo
-      # falha e o job `test` reprova (mesma armadilha documentada no molde
-      # ../tesouro-direto-api/.github/workflows/deploy.yml para TD_APP_PASSWORD: o bug
-      # não aparece em teste local porque `docker compose` lê o `.env` do diretório
-      # automaticamente e mascara a variável faltante — para reproduzir a condição do
-      # CI use `--env-file /dev/null`).
-      # RabbitMq__* não entra aqui: o F1 não tem cliente RabbitMQ, outbox nem relay (é
-      # esqueleto — Serilog+CorrelationId, health, /metrics e o guard de API key; ver
+      # Gate barato (segundos): docker-compose.prod.yml exige ${OPERACOES_APP_PASSWORD:?...},
+      # ${OPERACOES_API_KEY:?...}, ${OPERACOES_HUB_BASE_URL:?...} e ${OPERACOES_HUB_API_KEY:?...}
+      # (sem default em produção, de propósito). Este bloco env: é a ÚNICA fonte das
+      # obrigatórias aqui — o runner não tem `.env` (não é versionado); sem estas dummies o
+      # `config -q` do docker-compose.prod.yml abaixo falha e o job `test` reprova (mesma
+      # armadilha documentada no molde ../tesouro-direto-api/.github/workflows/deploy.yml
+      # para TD_APP_PASSWORD: o bug não aparece em teste local porque `docker compose` lê o
+      # `.env` do diretório automaticamente e mascara a variável faltante — para reproduzir
+      # a condição do CI use `--env-file /dev/null`).
+      # RabbitMq__* não entra aqui: nenhum cliente RabbitMQ, outbox nem relay ainda (ver
       # docs/ROADMAP.md). Volta neste gate junto com o serviço plataforma-rabbitmq no F4.
       - name: Compose config gate (sintaxe + tags existem no registry)
         env:
           OPERACOES_APP_PASSWORD: dummy
           OPERACOES_API_KEY: dummy
+          OPERACOES_HUB_BASE_URL: http://hub-precos-app:8080/
+          OPERACOES_HUB_API_KEY: dummy
         run: |
           set -e
           docker compose -f docker-compose.yml config -q
@@ -103,7 +104,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script_stop: true
-          envs: OPERACOES_APP_PASSWORD,OPERACOES_API_KEY
+          envs: OPERACOES_APP_PASSWORD,OPERACOES_API_KEY,OPERACOES_HUB_BASE_URL,OPERACOES_HUB_API_KEY
           script: |
             set -e
             REPO_DIR=/opt/operacoes
@@ -156,15 +157,34 @@ jobs:
               exit 1
             fi
 
+            # F3: Hub__BaseUrl/Hub__ApiKey — normalizadas na ORIGEM (PADROES §10.4), como as duas
+            # acima. Sem elas o container sobe e o HubConfigGuard derruba o boot em Production
+            # (src/Operacoes.API/Extensions/HubConfigGuard.cs).
+            OPERACOES_HUB_BASE_URL="$(printf '%s' "$OPERACOES_HUB_BASE_URL" | tr -d '\r\n')"
+            if [ -z "$OPERACOES_HUB_BASE_URL" ]; then
+              echo "ERRO: secret OPERACOES_HUB_BASE_URL vazio (ou só com quebras de linha). É a URL do"
+              echo "      Hub de Preços que o HubCatalogoClient consulta para validar instrumento_id;"
+              echo "      sem ela o HubConfigGuard derruba o boot em ambiente Production."
+              exit 1
+            fi
+
+            OPERACOES_HUB_API_KEY="$(printf '%s' "$OPERACOES_HUB_API_KEY" | tr -d '\r\n')"
+            if [ -z "$OPERACOES_HUB_API_KEY" ]; then
+              echo "ERRO: secret OPERACOES_HUB_API_KEY vazio (ou só com quebras de linha). É a chave que"
+              echo "      o operacoes ENVIA ao Hub (direção oposta de OPERACOES_API_KEY); sem ela o"
+              echo "      HubConfigGuard derruba o boot em ambiente Production."
+              exit 1
+            fi
+
             # ATENÇÃO: este .env é reescrito POR COMPLETO a cada deploy — não é um merge com
             # o que já existe na VPS. Qualquer variável obrigatória (${VAR:?...} no compose)
             # que não entrar neste MESMO printf derruba o serviço no próximo "up", mesmo que
             # a variável já tivesse valor num .env anterior. Já houve incidente neste
             # ecossistema com um script sobrescrevendo o .env com só parte das variáveis e
-            # reportando sucesso — as obrigatórias têm que estar juntas aqui. Hoje são só
-            # estas duas: RabbitMq__* volta a este printf junto com o relay, no F4.
-            printf 'OPERACOES_APP_PASSWORD=%s\nOPERACOES_API_KEY=%s\n' \
-              "$OPERACOES_APP_PASSWORD" "$OPERACOES_API_KEY" > .env
+            # reportando sucesso — as obrigatórias têm que estar juntas aqui. RabbitMq__*
+            # volta a este printf junto com o relay, no F4.
+            printf 'OPERACOES_APP_PASSWORD=%s\nOPERACOES_API_KEY=%s\nOPERACOES_HUB_BASE_URL=%s\nOPERACOES_HUB_API_KEY=%s\n' \
+              "$OPERACOES_APP_PASSWORD" "$OPERACOES_API_KEY" "$OPERACOES_HUB_BASE_URL" "$OPERACOES_HUB_API_KEY" > .env
             chmod 600 .env
 
             echo "== provisionamento do banco =="
@@ -177,6 +197,7 @@ jobs:
             # como "alien" de si mesmo e a guarda falsificaria colisão.
             outros=$(docker ps --format '{{.Names}}' | grep -vx -e operacoes-app || true)
             servicos=$(OPERACOES_APP_PASSWORD=dummy OPERACOES_API_KEY=dummy \
+              OPERACOES_HUB_BASE_URL=dummy OPERACOES_HUB_API_KEY=dummy \
               docker compose -f docker-compose.prod.yml config --services)
             for rede in tesouro-net plataforma; do
               if ! docker network inspect "$rede" >/dev/null 2>&1; then
@@ -257,6 +278,8 @@ jobs:
         env:
           OPERACOES_APP_PASSWORD: ${{ secrets.OPERACOES_APP_PASSWORD }}
           OPERACOES_API_KEY: ${{ secrets.OPERACOES_API_KEY }}
+          OPERACOES_HUB_BASE_URL: ${{ secrets.OPERACOES_HUB_BASE_URL }}
+          OPERACOES_HUB_API_KEY: ${{ secrets.OPERACOES_HUB_API_KEY }}
 
   guarda-deploy:
     # PADROES §10.17: o `deploy` depende do `test`; um teste instável pula o deploy em

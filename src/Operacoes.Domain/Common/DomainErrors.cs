@@ -15,5 +15,8 @@ public static class DomainErrors
 
         public static Error Conflict(string message) =>
             new("General.Conflict", message, ErrorType.Conflict);
+
+        public static Error Unprocessable(string message) =>
+            new("General.Unprocessable", message, ErrorType.Unprocessable);
     }
 }

@@ -30,6 +30,18 @@ job, client, teste), localize o equivalente no molde e siga.**
 Se PADROES.md e o código do molde divergirem, o código vence. Desvio de
 padrão só com justificativa explícita, aprovada pelo `advisor` e gravada na memória.
 
+## Código sem comentários (preferência do dono, vale sobre o default)
+
+Nenhum comentário nos `.cs` — nem `//`, nem `/* */`, nem `///`. **Todo prompt de
+`executor` e de `tarefas-leves` que gere código tem que carregar esta instrução**;
+sem ela o executor comenta por default e alguém apaga depois. Nome de método, nome
+de teste e estrutura carregam o que o comentário carregaria; o resto vai para
+`PADROES.md` (§8), `LEIA-ME-KIT.md` ou `docs/`.
+
+Três itens do `PADROES.md` exigiam o contrário e foram revogados junto (2026-09-06).
+Se um texto antigo mandar "comentar no código", ele caiu — mas leia a §8 antes de
+concluir que a guarda perdida não importava.
+
 ## Roteamento de tarefas
 
 - Trabalho de código padrão → subagent `executor` (Sonnet)

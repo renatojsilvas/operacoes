@@ -210,7 +210,7 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
 
   PR: operacoes #5.
 
-- [ ] **F3** — `POST /operacoes` com a **camada 2** da validação (§6.1, ADR-11).
+- [x] **F3** — `POST /operacoes` com a **camada 2** da validação (§6.1, ADR-11).
 
   **Pré-requisitos herdados do F2 — leia antes de despachar:**
 
@@ -270,6 +270,71 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
 
   <br>**Pronto:** operação válida gravada com linha na outbox na mesma transação;
   inválida devolvendo problem+json com `code`, sem gravar nada.
+
+  **Fora do escopo, de propósito — leia antes de "consertar":** reenviar a mesma
+  `Idempotency-Key` com um **corpo diferente** devolve, em silêncio, os dados da
+  primeira chamada (200, replay) — não há detecção de divergência. Detectar isso exigiria
+  fingerprint do payload (guardar hash do corpo original e comparar no replay), e ficou
+  fora do F3. Comportamento nomeado pelo teste
+  `Post_ComMesmaIdempotencyKeyECorpoDiferente_DevolveARespostaDaPrimeiraChamadaSemDetectarDivergencia`
+  em `OperacoesEndpointsTests.cs` — se um dia vier o fingerprint, é esse teste que muda de
+  vermelho para verde de propósito, não um bug relatado depois.
+  Também de propósito: rota inexistente (404) e verbo não suportado (405) em `/v1/*`
+  respondem vazios, sem problem+json — o switch de `code` em
+  `Operacoes.API/DependencyInjection.cs` (`CustomizeProblemDetails`) só cobre os status
+  que o pipeline deste F3 realmente produz (400 do `ThrowOnBadRequest`, 415 automático);
+  404/405 nunca chegam lá porque o pipeline não tem `UseStatusCodePages`. Nomeado pelos
+  testes `Get_RotaInexistente_Retorna404VazioSemProblemJsonPorForaDoEscopoDoF3` e
+  `Get_EmRotaDeOperacoesQueSoAceitaPost_Retorna405VazioSemProblemJsonPorForaDoEscopoDoF3`
+  em `ProblemDetailsStatusCoverageTests.cs`.
+
+  <br>**FECHADO em 2026-09-06.** 352 testes, 0 falhas; cobertura 91,90% (gate: 85%).
+  Baseline do F2 era 144 testes.
+
+  **Decisões desta fase**, tomadas pelo `advisor` e pelo dono antes de qualquer código:
+  a validação de instrumento **entra no F3** por client HTTP próprio (`IHubCatalogoClient`,
+  um método; o F5 acrescenta busca e cache à mesma porta) — o argumento que fechou foi
+  "o que for gravado errado até a próxima fase terá conserto?", e `instrumento_id` fantasma
+  em tabela append-only com evento já publicado **não tem**; `Idempotency-Key`
+  **obrigatório** com `id` derivado de `SHA256(len:clienteId:key)`, o que faz a PK ser a
+  própria chave de idempotência (sem coluna nova, sem `ON CONFLICT` — que a trigger barra —
+  e sem corrida, porque o índice único é o árbitro); e `ErrorType.Unprocessable` (422) e
+  `Unavailable` (503) acrescentados, com `Validation` (400) intocado.
+
+  A contradição aparente entre a §6.1 (503 quando a fonte não responde) e o
+  `LEIA-ME-KIT` ("falha de infra é 500, não `Result` de 4xx") foi resolvida, não contornada:
+  o kit proíbe **vestir falha de infraestrutura de rejeição de negócio** — 400 com
+  `ex.Message` cru, culpando o cliente. 503 com `detail` fixo é a afirmação verdadeira
+  "não consegui emitir veredito", e a §3 já manda a Infrastructure converter exceção em
+  `Result`. Há teste de arquitetura provando que **só** o `HubCatalogoClient` produz
+  `Unavailable`.
+
+  **Quatro defeitos graves achados nas revisões, todos corrigidos:**
+
+  1. A varredura de comentários pulou os 26 arquivos novos, porque o alvo era
+     `git ls-files` — que lista só o que está rastreado. Ver `LEIA-ME-KIT.md`.
+  2. `HubConfigGuard` validava `Hub:ApiKey` só como "não vazio", enquanto a §6 exige
+     mínimo de 32 caracteres **e** lista de placeholders. Extraído `KeyStrengthGuard`,
+     com a lista num dono só.
+  3. `Idempotency-Key` não era trimada: header com espaço em volta gerava `id` diferente
+     e **duplicava a operação** — duas linhas em tabela append-only e dois
+     `TradeRegistered` para a Custódia. Trimar é a leitura correta do header (RFC 9110:
+     OWS não faz parte do valor) e é o que a §10.24 já manda.
+  4. Overflow numérico devolvia 500. Corrigido no Domínio e no `AppDbContext`. O caso de
+     **escala** era pior que o de magnitude e não tinha sido reportado: o Postgres
+     arredonda em silêncio, grava valor diferente do enviado e devolve 201. Virou a
+     `PADROES.md` §10.25.
+
+  **Ainda não verificado, e não afirmo que esteja:** que o `query` do Hub **deployado**
+  case por id byte a byte. O comportamento foi lido do código do Hub
+  (`id ILIKE '%busca%'` — substring, case-insensitive, paginado) e os testes rodam contra
+  stub. Falta o comando literal contra a VPS:
+  `curl -H "X-Api-Key: ..." "{hub}/v1/instruments?query=td:tesouro-ipca-2035-05-15"`,
+  conferindo que o id volta idêntico ao consultado (§10.9).
+
+  **Pré-requisito cumprido fora deste repo:** `estornaTradeId` acrescentado ao contrato
+  `trades.registered` na §5.1 do `ARQUITETURA.md` (`plataforma-docs`, commit `b2a58a6`),
+  antes do código que emite o payload.
 
 - [ ] **F4** — relay outbox → RabbitMQ publicando `trades.registered` no exchange
   `prices` (§5 — sim, o exchange se chama `prices` e carrega trades também). É **porte

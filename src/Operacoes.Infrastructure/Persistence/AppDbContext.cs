@@ -9,11 +9,8 @@ namespace Operacoes.Infrastructure.Persistence;
 
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IUnitOfWork
 {
-    // F2 cria as tabelas `operacoes` e `outbox` (ver docs/ROADMAP.md). ESCRITA por EF (aqui),
-    // LEITURA por Dapper — não há ReadRepository ainda porque não há caso de uso de leitura no F2.
     public DbSet<Operacao> Operacoes => Set<Operacao>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
-
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
@@ -29,16 +26,33 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg
             && pg.SqlState == PostgresErrorCodes.UniqueViolation)
         {
-            foreach (var entry in ChangeTracker.Entries().Where(e => e.State != EntityState.Unchanged).ToList())
-            {
-                entry.State = EntityState.Detached;
-            }
-
+            DetacharAlteracoes();
             return Result.Failure(DomainErrors.General.Conflict(
                 "Conflito de gravação: outra execução já persistiu um registro com a mesma chave nesta janela."));
         }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg
+            && (pg.SqlState == PostgresErrorCodes.ForeignKeyViolation
+                || pg.SqlState == PostgresErrorCodes.CheckViolation))
+        {
+            DetacharAlteracoes();
+            return Result.Failure(OperacaoErrors.EstornoReferenciaInvalida);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg
+            && pg.SqlState == PostgresErrorCodes.NumericValueOutOfRange)
+        {
+            DetacharAlteracoes();
+            return Result.Failure(DomainErrors.General.Unprocessable(
+                "Valor numérico excede a magnitude ou a precisão suportada pela coluna."));
+        }
     }
 
+    private void DetacharAlteracoes()
+    {
+        foreach (var entry in ChangeTracker.Entries().Where(e => e.State != EntityState.Unchanged).ToList())
+        {
+            entry.State = EntityState.Detached;
+        }
+    }
     void IUnitOfWork.LimparRastreamento()
     {
         ChangeTracker.Clear();

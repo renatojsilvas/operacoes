@@ -6,21 +6,6 @@ using Serilog.Events;
 
 namespace Operacoes.API.Tests.Middleware;
 
-/// <summary>
-/// Prova que o CorrelationId chega ao log estruturado, e nao apenas ao header HTTP
-/// e ao corpo problem+json (ja cobertos por <see cref="CorrelationIdMiddlewareTests"/>).
-///
-/// Tecnica: <see cref="CorrelationIdMiddleware"/> usa Serilog.Context.LogContext.PushProperty,
-/// que e um mecanismo ambiente (AsyncLocal) do Serilog - nao do Microsoft.Extensions.Logging.ILogger.
-/// Um FakeLogger&lt;T&gt; que implementa ILogger&lt;T&gt; nao enxerga essa propriedade, porque
-/// LogContext so e observado por um Serilog ILogger configurado com Enrich.FromLogContext()
-/// (exatamente como em appsettings.json: "Enrich": ["FromLogContext"]).
-///
-/// Por isso o teste monta um Serilog.ILogger local (nao o Log.Logger estatico da aplicacao,
-/// para nao interferir com outros testes) com essa mesma configuracao de enrichment e um sink
-/// em memoria, invoca o middleware de verdade com um RequestDelegate que loga durante o
-/// pipeline, e verifica a propriedade "CorrelationId" no LogEvent capturado.
-/// </summary>
 public sealed class CorrelationIdMiddlewareLogEnrichmentTests
 {
     private const string CorrelationIdHeader = "X-Correlation-Id";

@@ -5,22 +5,6 @@ using Testcontainers.PostgreSql;
 
 namespace Operacoes.API.Tests.Integration;
 
-// Substitui EfRoundTripTests/SchemaTests do molde (hub-precos): não há entidade de negócio neste F1
-// (ver docs/ROADMAP.md), então não há o que fazer round-trip nem coluna/índice para inspecionar. O que
-// tem que ficar provado é o coração do F1: migrations aplicando sozinhas NO BOOT, contra um Postgres
-// real — não a chamada manual a MigrateAsync que o ApiTestFactory (ambiente "Testing") faz, porque o
-// DatabaseInitializer pula a inicialização exatamente nesse ambiente. Por isso este teste sobe a
-// aplicação inteira (Program.cs) em "Development" — onde a guarda de API key é isenta mas o
-// DatabaseInitializer roda de verdade — contra um Testcontainers próprio, e confirma a linha da
-// migration em "__EFMigrationsHistory".
-//
-// A connection string de teste é injetada via variável de ambiente (não via
-// WebApplicationFactory.ConfigureAppConfiguration): AddInfrastructure lê e fixa a connection string
-// dentro do NpgsqlDataSource ANTES de builder.Build() (Program.cs), e é só no Build() que o hook de
-// configuração da WebApplicationFactory (WebApplicationFactory usa DeferredHostBuilder para apps de
-// hosting mínimo) tem chance de agir — tarde demais para esse valor específico. A variável de ambiente,
-// por já existir no processo antes de WebApplication.CreateBuilder(args) rodar, chega a tempo. Mesmo
-// padrão do ApiTestFactory e do ApiKeyNormalizationTests.ProductionApiKeyFactory deste projeto.
 public sealed class MigrationsBootTests
 {
     private const string MigrationId = "20260905164053_InitialCreate";
@@ -38,8 +22,6 @@ public sealed class MigrationsBootTests
         {
             await using var factory = new DevelopmentBootFactory();
 
-            // Acessar Services força o host a subir por completo — inclusive o Program.cs top-level,
-            // que chama app.InitializeDatabaseAsync() antes de app.Run(). Se a migration falhar, lança.
             _ = factory.Services;
         }
         finally

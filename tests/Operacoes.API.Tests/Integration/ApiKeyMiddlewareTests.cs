@@ -4,10 +4,6 @@ using System.Text.Json;
 
 namespace Operacoes.API.Tests.Integration;
 
-// Protected path: não há endpoint de negócio neste F1 (ver docs/ROADMAP.md), então usamos a rota de
-// teste "_test/result/success" (mapeada só em Testing, fora dos ApiKey:ExcludedPaths) como substituta
-// de uma rota de negócio real — ela é o suficiente para provar que uma requisição autorizada passa pelo
-// middleware e chega ao endpoint.
 [Collection("api")]
 public sealed class ApiKeyMiddlewareTests(ApiTestFactory factory)
 {

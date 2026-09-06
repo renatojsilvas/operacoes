@@ -13,10 +13,6 @@ public sealed partial class ExceptionHandlingConventionTests
         var arquivosApplication = ListarArquivosCs(Path.Combine(RepoRoot, "src", "Operacoes.Application"));
         var arquivosInfrastructure = ListarArquivosCs(Path.Combine(RepoRoot, "src", "Operacoes.Infrastructure"));
 
-        // Limiar menor que o do molde (hub-precos usa > 5): este F1 é um esqueleto novo, bem menor que
-        // o hub na época em que esse teste foi escrito lá. O que a asserção precisa garantir continua
-        // valendo com qualquer limiar > 0: que ListarArquivosCs enxergou arquivos de verdade, e não um
-        // caminho errado silenciosamente devolvendo uma lista vazia.
         Assert.True(
             arquivosDomain.Count > 0,
             $"esta asserção só é uma convenção real se houver ao menos um arquivo .cs " +
@@ -45,8 +41,6 @@ public sealed partial class ExceptionHandlingConventionTests
             "Infrastructure, onde a exceção nasce). Ocorrências encontradas:\n" +
             string.Join('\n', catchesApplication));
 
-        // Controle positivo (PADROES §10.8): sem isto, o dia em que o scanner quebrar (caminho errado,
-        // pasta renomeada) as duas asserções negativas acima ficariam verdes sem checar nada de verdade.
         Assert.True(
             catchesInfrastructure.Count > 0,
             "Operacoes.Infrastructure legitimamente contém 'catch' (AppDbContext traduzindo violação " +

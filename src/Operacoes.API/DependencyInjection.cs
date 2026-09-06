@@ -18,7 +18,6 @@ public static class DependencyInjection
             options.KnownNetworks.Clear();
             options.KnownProxies.Clear();
         });
-
         services.AddHealthChecks()
             .AddDbContextCheck<AppDbContext>()
             .AddCheck<PendingMigrationsHealthCheck>("migrations-pendentes")
@@ -33,7 +32,6 @@ public static class DependencyInjection
         services.AddSwaggerGen(c =>
         {
             c.SwaggerDoc("v1", new OpenApiInfo { Title = "Operações API", Version = "v1" });
-
             var apiKeyScheme = new OpenApiSecurityScheme
             {
                 Type = SecuritySchemeType.ApiKey,
@@ -48,7 +46,6 @@ public static class DependencyInjection
                 [apiKeyScheme] = Array.Empty<string>(),
             });
         });
-
         services.AddProblemDetails(options =>
         {
             options.CustomizeProblemDetails = context =>
@@ -57,12 +54,19 @@ public static class DependencyInjection
                 {
                     context.ProblemDetails.Extensions["correlationId"] = correlationId;
                 }
-
                 context.ProblemDetails.Extensions["traceId"] =
                     Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
+                if (!context.ProblemDetails.Extensions.ContainsKey("code"))
+                {
+                    context.ProblemDetails.Extensions["code"] = context.ProblemDetails.Status switch
+                    {
+                        StatusCodes.Status400BadRequest => "Requisicao.CorpoInvalido",
+                        StatusCodes.Status415UnsupportedMediaType => "Requisicao.MidiaNaoSuportada",
+                        _ => "Erro.Interno",
+                    };
+                }
             };
         });
-
         return services;
     }
 }
