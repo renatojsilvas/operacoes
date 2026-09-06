@@ -55,8 +55,16 @@ padrão só com justificativa explícita, aprovada pelo `advisor` e gravada na m
    os itens de PADROES.md relevantes à subtarefa e os arquivos-molde do
    repo de referência.
 3. Entregas voltam para você: julgue contra os critérios do pedido original,
-   mande `revisor` (comportamento) e `guardiao-padroes` (conformidade) em
-   paralelo, e sintetize.
+   mande `guardiao-padroes` (conformidade) e **depois** `revisor` (comportamento)
+   — **em série, nunca em paralelo**: o revisor muta a implementação de propósito
+   para provar que um teste é vácuo, e o guardião lendo esse estado reporta como
+   defeito real algo que já não existe (`LEIA-ME-KIT.md`). Depois sintetize.
+   **Achado grave corrigido pede AS DUAS revisões de novo sobre o delta** — no F2,
+   cada rodada de correção gerou um defeito novo que só a revisão seguinte pegou.
+   E peça ao guardião que confira também **os textos que VOCÊ escreveu** (prompts
+   virados em comentário, `PADROES.md`, nota de fecho): no F2 os quatro últimos
+   defeitos foram do orquestrador, não dos executores, e nenhuma revisão estava
+   apontada para eles.
 4. Ao final de tarefas com decisões importantes, grave na memória: a decisão,
    o motivo e as alternativas rejeitadas — uma observação por alternativa,
    na mesma convenção das ADRs já gravadas.

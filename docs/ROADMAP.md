@@ -257,8 +257,15 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   Lembre que falha de infraestrutura e 500 pelo handler global, nao Result de 400 —
   ver LEIA-ME-KIT.md, "Mandar o executor violar a camada".
 
-  Ao final, revisor e guardiao-padroes em paralelo, e me mostre prova por mutacao dos
-  testes de validacao.
+  Ao final, guardiao-padroes e DEPOIS revisor — em serie, nunca em paralelo: o revisor
+  muta a implementacao de proposito para provar que um teste e vacuo, e o guardiao lendo
+  esse estado reporta defeito que nao existe (LEIA-ME-KIT). Se alguma revisao achar
+  defeito grave, corrija e rode AS DUAS de novo sobre o delta — no F2 cada rodada de
+  correcao gerou um defeito novo que so a revisao seguinte pegou. Peca ao guardiao que
+  confira tambem os textos que VOCE escreveu (comentarios, PADROES, nota de fecho): no
+  F2 os quatro ultimos defeitos foram do orquestrador, nao dos executores.
+
+  Me mostre prova por mutacao dos testes de validacao.
   ```
 
   <br>**Pronto:** operação válida gravada com linha na outbox na mesma transação;
@@ -284,7 +291,8 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   - o servico do broker NAO entra no compose deste repo, ele e da plataforma;
   - se mexer em depends_on ou em espera, procure quem depende dela (10.15).
 
-  Ao final, revisor e guardiao-padroes em paralelo.
+  Ao final, guardiao-padroes e DEPOIS revisor, em serie (nunca em paralelo — ver
+  LEIA-ME-KIT). Achado grave corrigido pede AS DUAS revisoes de novo sobre o delta.
   ```
 
   <br>**Pronto:** `POST /operacoes` seguido de mensagem chegando numa fila de teste
@@ -310,7 +318,8 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   Invariante a preservar: mesma origem para lista e validacao. O instrumento que este
   endpoint oferece tem que ser aceito pelo POST /operacoes, por construcao.
 
-  Ao final, revisor e guardiao-padroes em paralelo.
+  Ao final, guardiao-padroes e DEPOIS revisor, em serie (nunca em paralelo — ver
+  LEIA-ME-KIT). Achado grave corrigido pede AS DUAS revisoes de novo sobre o delta.
   ```
 
   <br>**Pronto:** autocomplete respondendo, e o mesmo instrumento que ele oferece sendo
