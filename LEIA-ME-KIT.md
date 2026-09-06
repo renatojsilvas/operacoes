@@ -692,3 +692,25 @@ saída é idêntica.
 `-w '%{http_code}'`. Vale a mesma lógica da §10.15: distinguir "não conectou" de "conectou e
 recusou" é o que manda o operador para o lado certo. Um comando de prova cuja falha é
 silenciosa não é prova.
+
+## Teste manual em tabela append-only deixa lixo que não sai
+
+Para provar o `POST /operacoes` contra produção, mandei o dono fazer um POST real com
+`clienteId: cli-teste`. Funcionou — e gravou numa tabela onde `UPDATE` e `DELETE` são
+bloqueados por trigger. A linha ficaria **para sempre**, e o relay do F4 publicaria aquele
+`TradeRegistered` para a Custódia, que escrituraria uma operação de um cliente que não existe.
+
+O agravante é de quem escreveu a regra: a lição central da mesma fase, na `PADROES.md`
+§10.21, é **"se entrar dado errado aqui, dá para consertar depois?"**. Propus o teste sem
+fazer a pergunta que eu mesmo tinha formulado.
+
+Saiu barato só por coincidência de timing: as tabelas continham apenas o dado de teste, o F4
+ainda não existia, nada tinha sido publicado, e o F2 deixou o `TRUNCATE` aberto de propósito
+para fixture (trigger de linha não dispara em TRUNCATE). Com dado real ao lado, a limpeza
+teria custado `DISABLE TRIGGER` e perícia manual.
+
+**Regra:** antes de propor um teste de escrita contra produção, pergunte o que ele deixa para
+trás e como se remove. Em tabela append-only a resposta costuma ser "nada remove" — então ou
+o teste roda em ambiente descartável, ou é a primeira escrita e se limpa com `TRUNCATE`
+imediatamente, ou não se faz. **E decida a limpeza ANTES de rodar**, não depois de ver o 201:
+depois do 201 a decisão já está tomada por você.
