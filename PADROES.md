@@ -58,6 +58,16 @@ justificativa registrada na memória.
 - **Banco privado por serviço**: role própria não-superuser, schema próprio com
   `REVOKE ... FROM PUBLIC`, UMA connection string por serviço, integração entre
   serviços SOMENTE por contrato (HTTP/eventos), jamais lendo banco alheio.
+- **Identidade de outro contexto grava-se CRUA**: sem FK, sem de-para, sem réplica local
+  da entidade. Se o dono do conceito é outro serviço, guarde só o id que ele emitiu e
+  valide contra o contrato dele (REST/evento), nunca contra tabela sua. Uma cópia local
+  é uma terceira identidade a divergir, e validar contra ela é validar contra dado de
+  que você não é dono. Vale para `instrumento_id` (id do Hub) e para `cliente_id`
+  (conceito que só existe na Custódia — quem garante que existe é a borda autenticada):
+  **`Operações` não tem, e não terá, tabela de clientes nem de instrumentos**. Ref:
+  ADR-12 e §7.2 do `ARQUITETURA.md`; `Infrastructure/Persistence/Configurations/OperacaoConfiguration.cs`,
+  onde a regra está repetida em comentário — regra em arquivo distante não intercepta
+  quem está prestes a violá-la.
 
 ## 4. Integrações externas e jobs
 
@@ -449,3 +459,147 @@ asserção equivalente sobre o que existe** em vez de só apagar: aqui o smoke t
 `/v1/instruments` virou "sem chave → 401 **e** com a chave → 404", que juntas provam que
 o middleware está ativo e que a chave confere — enquanto só o 401 passaria também com a
 chave errada.
+
+### 10.21. Em tabela append-only, o lado estrito é o lado reversível
+
+Numa tabela imutável (UPDATE e DELETE bloqueados), a assimetria de custo entre restringir
+demais e restringir de menos **se inverte** em relação ao normal. Na dúvida entre pôr a
+constraint agora ou adiar para a próxima fase, **ponha agora**.
+
+**Por quê:** aprendido no F2 do `operacoes`, em revisão adversarial. A tabela `operacoes`
+tinha três decisões que, isoladas, estavam certas: trigger de imutabilidade (correção é
+por estorno, nunca por UPDATE), índice `UNIQUE (estorna_operacao_id) WHERE ... IS NOT
+NULL` (uma operação não se estorna duas vezes), e validação de negócio adiada para a fase
+seguinte, "porque o F2 é schema". Juntas, abriram um caminho de dado **irreparável**:
+`INSERT` com `estorna_operacao_id = id` passa — a FK auto-referente se satisfaz sozinha —,
+consome o slot único de estorno daquela linha, e como UPDATE e DELETE estão bloqueados,
+o estorno legítimo daquela operação fica impossível **para sempre**. Vale igual para uma
+operação de outro tipo carregando referência, e para um estorno apontando para operação
+de outro cliente (que ainda publicaria evento no livro errado).
+
+A conta que decide: sair de uma constraint estrita demais é `DROP CONSTRAINT` — migration
+de uma linha, sem rewrite, e drop de constraint **nunca invalida linha existente**. Sair
+de uma constraint que faltou exige `DISABLE TRIGGER` mais perícia manual, e os eventos já
+publicados rio abaixo não voltam.
+
+**Guarda:** ao fechar o schema de uma tabela append-only, não pergunte "esta regra é desta
+fase?" e sim "**se entrar dado errado aqui, dá para consertar depois?**". O que não dá,
+entra agora. Uma exceção real e que precisa de comentário no código: a guarda que fecharia
+a última porta de correção — aqui, bloquear estorno **de** estorno teria sido isso, porque
+cadeia de estorno é a única saída quando um estorno entra errado.
+
+### 10.22. `GetPendingMigrationsAsync` não prova schema — prova histórico
+
+Continuação direta da §10.18. Endurecer o `/health/ready` com `GetPendingMigrationsAsync()`
+fecha **metade** da lacuna e dá a sensação de ter fechado inteira.
+
+**Por quê:** provado por mutação no F2 do `operacoes`. `GetPendingMigrationsAsync()` compara
+a lista gravada em `__EFMigrationsHistory` com as migrations do assembly — nunca toca o
+catálogo do Postgres. Com `DROP TABLE operacoes CASCADE` por fora e o histórico intacto:
+`0 pendências`, `/health/ready` respondeu **200**. Dos dois riscos que a §10.18 nomeia,
+ele cobre migration **pulada** e não cobre **drift manual** — que é justamente o mais
+silencioso dos dois.
+
+Agravante do mesmo incidente: o comentário no código **afirmava** cobrir "drift manual,
+tabela dropada por fora". Afirmação falsa escrita no código é pior que a lacuna, porque
+desliga a desconfiança de quem lê depois.
+
+**Guarda:** some uma sonda de existência física, com a lista de tabelas derivada de
+`db.Model.GetEntityTypes()` — **nunca escrita à mão**, que desatualiza em silêncio quando
+entrar tabela nova. Uma consulta só, `unnest` + `to_regclass`, resolve todas. E escreva no
+comentário o que o check **não** cobre (aqui: coluna, índice ou CHECK alterados mantendo a
+tabela).
+
+**E o inventário do "não cobre" também é uma afirmação — tem que estar completo.** Na
+revisão seguinte, dropar a **trigger de imutabilidade** por fora deixou o `/health/ready`
+em 200 com o `UPDATE` voltando a passar em silêncio: a única guarda que impede corrupção
+irreversível em `operacoes` sumia sem ninguém notar, e a trigger não estava na lista do que
+o check não cobria. Regra derivada: **objeto de schema cuja ausência permite corrupção
+silenciosa não vai para a lista do "não cobre" — vai para a sonda.** Consulte `pg_trigger`
+com `tgisinternal = false`, para não casar as triggers internas de constraint.
+
+Declare a trigger no modelo com `ToTable(t => t.HasTrigger("nome"))` e derive a lista de
+`GetDeclaredTriggers()`, do mesmo jeito que a lista de tabelas — **não** deixe o nome
+literal na consulta. Verificado neste repo (EF Core 8.0.11 + Npgsql) antes de adotar: a
+anotação é **puro metadado**, o `migrations script` sai idêntico e uma migration gerada com
+ela vem com `Up`/`Down` vazios. A checagem que importa fazer antes de copiar isto para outro
+provider: no SQL Server, declarar trigger faz o provider **abandonar a cláusula `OUTPUT`** e
+mudar a estratégia de escrita (`SqlServerOutputClauseConvention`) — esse convention existe
+só no assembly do SQL Server; o do Npgsql não tem convenção alguma que reaja ao metadado de
+trigger. Verificado ainda por fora do assembly, que é a prova que vale: `migrations
+has-pending-model-changes` sem mudanças, nenhuma DDL gerada pela anotação, e o SQL de INSERT
+idêntico com e sem ela.
+E note por que a sonda continua necessária mesmo com o metadado declarado: **`HasTrigger`
+registra intenção, não confere existência** — é exatamente a distinção da §10.18.
+
+**Erro que este item quase carregou:** a primeira versão deste texto afirmava que "o EF não
+tem metadado de trigger, então não dá para derivar de `db.Model`". Falso — `HasTrigger`
+existe desde o EF Core 7, e a versão em uso aqui é a 8.0.11. Ou seja, a regra escrita para
+combater afirmação-que-o-código-não-sustenta nasceu com uma. Antes de escrever "a ferramenta
+não permite X", procure X na documentação da versão que você está usando.
+
+**Duas armadilhas de `SqlQueryRaw` achadas escrevendo esta sonda**, ambas provadas contra
+Postgres real e ambas silenciosas em compilação: (1) passar um `string[]` direto para
+`SqlQueryRaw(string, params object[])` sofre **covariância de array** e vira um parâmetro
+por elemento em vez de um `text[]` — embrulhe em `new object[] { array }`; (2) `SqlQueryRaw<T>`
+escalar exige a coluna com alias `AS "Value"` assim que qualquer operador LINQ compõe a
+consulta (`SingleAsync`, por exemplo, a envelopa em `SELECT t."Value" FROM (...) AS t`) —
+sem o alias, falha em runtime. Numa delas o `catch` do health check engoliu o erro e deixou
+o readiness permanentemente `Unhealthy`: é a direção segura de falhar, mas o motivo real só
+aparece em log.
+
+### 10.23. FK composta faz o EF gerar um índice que ninguém nomeou
+
+Ao criar FK cujas colunas não são prefixo de nenhum índice existente, o EF Core auto-gera
+o índice de cobertura com o nome default em PascalCase — `IX_tabela_col1_col2_col3` —
+violando a §3 sem que ninguém tenha escrito uma linha errada.
+
+**Por quê:** no F2 do `operacoes`, trocar a FK de estorno por composta produziu
+`IX_operacoes_estorna_operacao_id_cliente_id_instrumento_id`. Passou pelo executor, por
+uma auditoria de conformidade inteira, pela revisão adversarial e pelo orquestrador. O
+índice não aparece na configuration (ninguém o escreveu), só na migration gerada e no
+snapshot; e o teste que varria índices únicos não pegava, porque este não é único.
+
+O molde não protege contra isto: no `hub-precos` as FKs são sempre a coluna líder da
+própria PK composta, então o EF nunca precisa gerar índice de suporte. É lacuna que
+comparar com o molde por fidelidade **não** revela, porque o molde não tem o caso — o
+complemento exato da §10.10.
+
+**Guarda:** declare o índice de cobertura com `HasDatabaseName` sempre que a FK não
+coincidir com prefixo de índice existente. E, melhor que lembrar disso, tenha um teste
+que varra `pg_indexes` e reprove **qualquer** índice fora da convenção: nomear um índice
+hoje não impede o EF de gerar outro amanhã.
+
+### 10.24. Campo opcional que usa `null` para "ausente" precisa de guarda contra vazio
+
+Se `null` significa "sem valor" numa coluna nullable, então string vazia ou só espaços é
+**entrada malformada**, não sinônimo de `null`. Rejeite explicitamente, com erro próprio —
+e não normalize para `null` em silêncio, que esconde bug do chamador.
+
+**Por quê:** no F2 do `operacoes`, `Operacao.Create(..., tipo: Aporte, estornaOperacaoId:
+"   ")` devolvia **sucesso**, guardando os espaços. O banco discorda: `'   '` é `IS NOT
+NULL`, então `ck_operacoes_estorno_coerente` exige `operacao = 'estorno'` e o INSERT falha.
+Domínio e banco davam vereditos opostos para a mesma entrada — exatamente o 500-em-vez-de-4xx
+que aquela validação de Domínio existia para impedir. Nenhum teste cobria "string não-nula
+porém vazia", que é o buraco clássico entre `!= null` e `IsNullOrWhiteSpace`.
+
+**E normalize os identificadores todos, não um.** A correção inicial trimou só o campo que
+tinha mordido; `id`, `cliente_id` e `instrumento_id` ficaram sem trim no mesmo método, numa
+tabela append-only onde `"op-1"` e `"op-1 "` viram duas linhas distintas **para sempre**. É a
+seção "Normalizar de um lado só" do `LEIA-ME-KIT.md` acontecendo dentro do código que a
+combatia. Cuidado com o efeito colateral: a comparação de auto-referência tem que usar o
+valor **já normalizado**, senão `" op-1 "` como id e `"op-1"` como referência escapam da
+guarda.
+
+**Guarda:** para todo campo `string?` opcional, um teste por valor de fronteira (`null`,
+`""`, `"   "`, com espaço em volta, e o caso válido) **cruzando as duas camadas** — provando
+que Domínio e banco dão o mesmo veredito, não que cada um funciona sozinho. Ref:
+`SchemaTests.DominioEBanco_ConcordamSobreEstornaOperacaoId`.
+
+**Onde fica a fronteira com o "grava-se crua" da §3** (ler as duas sem isto permite concluir
+o oposto): normalizar identidade de outro contexto é **só `Trim()`** — remover ruído de
+transporte, que nenhum dono de identidade trata como parte do valor. **Nunca transformar o
+valor**: baixar caixa, reordenar, reescrever separador. Canonização é política do dono do
+conceito, e reimplementá-la aqui é presumir regra alheia que pode mudar sem aviso. O molde
+`Hub.Domain.Instrumentos.InstrumentoId` faz `Trim().ToLowerInvariant()` porque o slug é
+**dele**; quem só guarda o id do Hub para de propósito no trim.

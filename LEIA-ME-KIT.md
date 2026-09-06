@@ -485,3 +485,90 @@ repo".
   valor anterior para comparar — e `docker restart` preserva o container, então esse
   campo nem mudaria. Inventei uma prova para a conclusão que eu já queria. Antes de
   chamar algo de evidência, pergunte o que ela valeria se a sua hipótese fosse falsa.
+
+## Aceitar "isso é da próxima fase" sem perguntar se dá para consertar depois
+
+No F2 do `operacoes` o executor deixou de fora as validações de negócio de `Operacao.Create`
+com a justificativa de que regra de negócio é do F3, e eu aceitei — parecia o recorte certo
+de uma fase que era "só schema". O revisor mostrou o que eu não tinha visto: **a mesma fase
+tinha tornado o dado irreparável**. A trigger de imutabilidade e o índice único parcial de
+estorno são decisões do F2, e juntas fazem com que uma linha ruim gravada na janela F2→F3
+não tenha conserto — nem por UPDATE, nem por DELETE, e com o evento já publicado rio abaixo.
+
+O argumento que fecha, e que eu deveria ter aplicado sozinho: "regra de negócio é da próxima
+fase" já tinha sido vencido dentro do próprio F2, porque `UNIQUE (estorna_operacao_id)`
+("uma operação não se estorna duas vezes") **também** é regra de negócio e foi aceita sem
+discussão. Aceitar metade da regra e adiar a metade que a torna segura é o que produz o
+buraco.
+
+**Regra:** ao aceitar um adiamento de escopo, não pergunte "isto é desta fase?" e sim "**o
+que for gravado errado até a próxima fase terá conserto?**". Se a resposta for não, o
+adiamento não é recorte de escopo — é dívida sem prazo de pagamento. A versão técnica disso
+está no `PADROES.md` §10.21.
+
+## Correção de achado grave é código novo — e precisa das DUAS revisões de novo
+
+No F2, cada rodada de correção produziu um defeito novo, e cada um foi pego por uma
+revisão diferente:
+
+- O `guardiao-padroes` aprovou a primeira versão ponto a ponto. O `revisor` então achou
+  dois defeitos graves (dado irreparável no estorno; readiness que não pegava drift).
+- Corrigidos, mandei **o guardião de novo, só sobre o delta** — e ele achou o que tinha
+  passado por ele mesmo, pelo revisor e por mim: a FK que virou composta fez o EF gerar um
+  índice em PascalCase que ninguém escreveu (`PADROES.md` §10.23).
+- Aí eu **ia fechar**. Só rodei o revisor de novo porque o dono perguntou "revisor já
+  rodou?". Tinha rodado — antes das correções. Na segunda passada ele achou mais um
+  defeito: `Operacao.Create` aceitava `estorna_operacao_id = "   "` que o banco rejeita,
+  ou seja, a validação de Domínio que existia justamente para transformar 500 em 4xx furava
+  no caso que ninguém testou. E mostrou que a sonda de drift não cobria a trigger de
+  imutabilidade — a guarda central da fase sumindo sem o readiness notar.
+
+Nenhuma revisão anterior foi malfeita: os defeitos **não existiam** quando elas rodaram.
+Nasceram das correções.
+
+**Regra:** ao corrigir achado grave, rode **as duas** revisões de novo sobre o delta —
+`guardiao-padroes` (conformidade) e `revisor` (comportamento), em série, delimitando
+"audite apenas o delta, não reaudite o que já passou". Elas acham coisas diferentes e a
+segunda passada de cada uma pagou o próprio custo aqui. O sinal de que você está prestes a
+errar isto é a frase "só falta commitar".
+
+**Corolário sobre o que se conta ao dono:** eu ia pedir autorização de commit dizendo
+"revisado", com a parte mais delicada — a que nasceu de defeito grave e mexe em constraint
+de tabela imutável — sem revisão adversarial nenhuma. Ao relatar, diga **sobre qual versão
+do código** cada revisão rodou, não só que rodou.
+
+## Descrever o repo para o executor a partir de uma listagem truncada
+
+Escrevi no despacho que a factory de testes de integração "ainda não existe" e mandei criá-la.
+Ela existia desde o F1, junto com outros dez arquivos de teste — eu tinha listado o diretório
+com `find | head -100` e a lista foi cortada antes de chegar lá. O executor conferiu, achou a
+factory e reaproveitou, e me avisou no relatório; se tivesse obedecido, teria duplicado a
+infraestrutura de teste ou sobrescrito a existente.
+
+**Regra:** afirmação sobre o que o repo tem ou não tem, dentro de um prompt, é instrução —
+o executor age sobre ela. Antes de escrever "não existe X", rode a busca que responde
+exatamente isso (`git ls-files <dir>`, `find` sem `head`), não uma listagem geral truncada.
+E prefira dizer "procure X; se não existir, crie" a afirmar a ausência.
+
+## O condutor viola a regra que acabou de escrever
+
+Escrevi a `PADROES.md` §10.22 depois que o revisor mostrou um comentário de código afirmando
+cobrir um cenário que não cobria. A regra que tirei disso: **afirmação falsa escrita no
+código é pior que a lacuna, porque desliga a desconfiança de quem lê depois.**
+
+Na mesma sessão, no mesmo arquivo, escrevi neste texto que "o EF não tem metadado de
+trigger, então essa parte não dá para derivar de `db.Model`". Falso: `TableBuilder.HasTrigger`
+existe desde o EF Core 7, e a versão em uso aqui é a 8.0.11. A auditoria seguinte achou.
+Ou seja, a regra contra afirmação-sem-lastro nasceu **com** uma.
+
+O padrão, que é o achado de verdade: **os três últimos defeitos desta fase foram meus, não
+dos executores** — um trim pedido pela metade, esta afirmação falsa, e uma nota de fecho de
+fase desatualizada. Os executores fizeram exatamente o que eu pedi. Revisão adversarial e
+auditoria de conformidade estavam apontadas para o código dos executores; ninguém estava
+apontado para os meus prompts e os meus textos.
+
+**Regra:** o que o condutor escreve — prompt, comentário, `PADROES.md`, nota de fecho — entra
+na revisão junto com o código. Mande o `guardiao-padroes` conferir explicitamente "os textos
+que EU escrevi descrevem o que o código faz?", com essas palavras, e liste os arquivos.
+E antes de escrever "a ferramenta não permite X", procure X na documentação da **versão que
+você está usando** — leva um minuto e é a diferença entre uma regra e uma crença.

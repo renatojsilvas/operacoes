@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Operacoes.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using Operacoes.Infrastructure.Persistence;
 namespace Operacoes.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260905224603_CriaSchemaOperacoes")]
+    partial class CriaSchemaOperacoes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -86,8 +89,6 @@ namespace Operacoes.Infrastructure.Persistence.Migrations
 
                     b.ToTable("operacoes", null, t =>
                         {
-                            t.HasTrigger("trg_operacoes_imutavel");
-
                             t.HasCheckConstraint("ck_operacoes_estorno_coerente", "(operacao = 'estorno') = (estorna_operacao_id IS NOT NULL)");
 
                             t.HasCheckConstraint("ck_operacoes_estorno_nao_auto", "estorna_operacao_id IS NULL OR estorna_operacao_id <> id");

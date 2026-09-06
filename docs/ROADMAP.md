@@ -82,7 +82,7 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
 
   PRs: operacoes #1, #2, #3 · hub-precos #30, #31 · tesouro-direto #79.
 
-- [ ] **F2** — schema do Operações como migrations EF, snake_case, índices nomeados.
+- [x] **F2** — schema do Operações como migrations EF, snake_case, índices nomeados.
 
   **O `ARQUITETURA.md` NÃO especifica estas tabelas** — define as 4 do Hub na §4.1 e as
   4 da Custódia na §7.1, e nenhuma daqui. O modelo abaixo foi derivado do contrato de
@@ -158,7 +158,82 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   <br>**Pronto:** migrations aplicando no boot; tabelas e índices conferidos no banco
   com `\d`; as três decisões acima registradas na memória do projeto.
 
-- [ ] **F3** — `POST /operacoes` com a **camada 2** da validação (§6.1, ADR-11): rejeição
+  <br>**FEITO** (2026-09-05, **248 testes verdes**). O que a fase entregou **além** do
+  especificado acima, e por quê — leia antes de abrir o F3:
+
+  - **As decisões:** (1) idempotência **nada** no F2, nem coluna nem índice — e ficou
+    registrado o que *fecharia* a porta e por isso está proibido (UNIQUE sobre campos de
+    negócio, coluna de hash de conteúdo, DEFAULT no servidor para `operacoes.id`);
+    (2) `cliente_id` grava-se cru, sem tabela aqui — virou bullet na §3 do `PADROES.md`
+    e comentário na `OperacaoConfiguration`; (3) imutabilidade com **guarda no banco**,
+    por trigger na migration. `REVOKE UPDATE` foi descartado por motivo verificado: a
+    role `operacoes` é **dona do database** e roda as migrations no boot — o revoke seria
+    decoração e quebraria migration de dados dentro do laço de deploy. (4) A outbox
+    replica o hub fielmente, `criado_em` **sem** `DEFAULT` (confirmado no código do molde,
+    não só na doc); `operacoes.registrado_em` **com** `DEFAULT now()`. A assimetria é
+    intencional e testada nos dois sentidos.
+  - **Guarda do estorno (não estava no escopo, entrou por defeito achado na revisão).**
+    A combinação trigger de imutabilidade + `UNIQUE (estorna_operacao_id)` criava dado
+    **irreparável**: `INSERT` com `estorna_operacao_id = id` passa, consome o slot único
+    de estorno daquela linha, e sem UPDATE/DELETE o estorno legítimo dela fica impossível
+    para sempre. Entraram dois CHECK (`ck_operacoes_estorno_nao_auto`,
+    `ck_operacoes_estorno_coerente`) e uma **FK composta**
+    `(estorna_operacao_id, cliente_id, instrumento_id) → operacoes(id, cliente_id, instrumento_id)`,
+    sustentada pela alternate key `ux_operacoes_id_cliente_instrumento`. Racional em
+    `PADROES.md` §10.21. **Estorno de estorno continua permitido de propósito** — é a
+    única saída quando um estorno entra errado; não "conserte" isso.
+  - **`/health/ready` endurecido** (§10.18, que passou a morder aqui): além de
+    `CanConnectAsync`, confere migration pendente, existência física das tabelas **e** da
+    trigger de imutabilidade — tudo derivado de `db.Model` (`GetEntityTypes`,
+    `GetDeclaredTriggers`), nada de lista escrita à mão. `GetPendingMigrationsAsync` sozinho
+    **não** pega drift, e a primeira versão da sonda esquecia justamente a trigger, que é a
+    guarda central da fase — ver `PADROES.md` §10.22.
+  - **Domínio e banco concordando, provado nos dois sentidos.** `Operacao.Create` rejeita
+    `estorna_operacao_id` não-nulo porém vazio (`Operacao.EstornoReferenciaVazia`) e trima os
+    **quatro** identificadores — numa tabela append-only, `"op-1"` e `"op-1 "` seriam duas
+    linhas distintas para sempre. Sem `ToLowerInvariant` de propósito, ao contrário do molde:
+    canonizar identidade de outro contexto é responsabilidade do dono dela (§3, ADR-12) —
+    trim remove ruído de transporte, baixar caixa transformaria o valor. Ver `PADROES.md`
+    §10.24 e os testes `DominioEBanco_Concordam*` em `SchemaTests`.
+  - **`ck_operacoes_operacao_valida`**: `operacao IN ('aplicacao','resgate','aporte','estorno')`,
+    com teste que lê o `pg_get_constraintdef` e compara contra `TipoOperacao.All` — as duas
+    listas andam juntas. Enumerar aqui é o certo (diferente do molde, onde
+    `ck_instrumentos_classe_prefixo` *deriva* de `split_part(id, ':', 1)`): não há relação
+    estrutural entre o `tradeId` opaco e o tipo da operação.
+
+  <br>**Como esta fase foi conduzida, que é o que mais importa para o F3:** a entrega passou
+  por `guardiao-padroes` e `revisor` **três rodadas cada**, e *cada rodada de correção gerou
+  um defeito novo* que só a revisão seguinte pegou — inclusive um índice PascalCase gerado
+  pelo EF e uma afirmação falsa que o próprio orquestrador escreveu no `PADROES.md`. Os três
+  últimos defeitos vieram dos prompts e dos textos do orquestrador, não dos executores.
+  Está no `LEIA-ME-KIT.md`; não feche o F3 na primeira revisão verde.
+
+- [ ] **F3** — `POST /operacoes` com a **camada 2** da validação (§6.1, ADR-11).
+
+  **Pré-requisitos herdados do F2 — leia antes de despachar:**
+
+  - **`INSERT ... ON CONFLICT DO UPDATE` sobre `operacoes` NÃO funciona** — bate na trigger
+    de imutabilidade (provado contra Postgres). Qualquer idempotência de reenvio/redelivery
+    terá que ser `ON CONFLICT DO NOTHING` ou checagem prévia de existência. Isso restringe
+    a decisão de idempotência que o F2 adiou para cá: saiba disto **antes** de escolher o
+    mecanismo, não depois.
+  - **O caminho `UniqueViolation → Conflict` não tem teste, e ficou mais provável.** O
+    `AppDbContext.SaveChangesAsync` já traduz violação de unicidade em
+    `Result.Failure(Conflict)`, mas **nada exercita esse caminho** — não havia como, sem
+    endpoint de escrita. E o trim dos identificadores, que o F2 introduziu, aumenta a
+    probabilidade real: antes, `"op-1"` e `" op-1 "` eram ids distintos; agora colidem por
+    desenho. O primeiro teste do POST tem que cobrir isso.
+  - **Furo no contrato da §5.1, a corrigir aqui.** `trades.registered` não tem campo para a
+    referência do estorno, mas a §6 define estorno como "correção **referenciando a
+    original**" e `estorno` é valor válido de `operacao` no próprio contrato. Não é
+    intencional: a Custódia já tem o slot (`movimentos.ref_estorno`, §7.1) e a máquina para
+    preenchê-lo (`ref_externa` = tradeId, com `UNIQUE (cliente_id, ref_externa)`) — falta só
+    o tradeId estornado no payload. Sem ele, a Custódia não sabe o que está sendo estornado.
+    Acrescentar campo **opcional** `estornaTradeId`, sem bump de `v` (a §5.1 permite campos
+    novos opcionais). **Atualizar a §5.1 do `ARQUITETURA.md` é pré-requisito, não
+    consequência** — o payload é montado aqui, no handler do POST.
+
+  **O escopo do F3:** rejeição
   síncrona 400/422 para instrumento inexistente, quantidade não positiva,
   `data_evento > hoje` e campos malformados. Grava o fato **e o evento na MESMA
   transação** (ADR-3) — nada é gravado nem publicado em caso de rejeição.

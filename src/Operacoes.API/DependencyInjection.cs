@@ -19,7 +19,10 @@ public static class DependencyInjection
             options.KnownProxies.Clear();
         });
 
-        services.AddHealthChecks().AddDbContextCheck<AppDbContext>().ForwardToPrometheus();
+        services.AddHealthChecks()
+            .AddDbContextCheck<AppDbContext>()
+            .AddCheck<PendingMigrationsHealthCheck>("migrations-pendentes")
+            .ForwardToPrometheus();
         services.AddSingleton<IDatabaseInitializer, DatabaseInitializer>();
         services.AddScoped<IDatabaseMigrator, EfCoreDatabaseMigrator>();
         services.ConfigureHttpJsonOptions(options =>
