@@ -325,12 +325,20 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
      arredonda em silêncio, grava valor diferente do enviado e devolve 201. Virou a
      `PADROES.md` §10.25.
 
-  **Ainda não verificado, e não afirmo que esteja:** que o `query` do Hub **deployado**
-  case por id byte a byte. O comportamento foi lido do código do Hub
-  (`id ILIKE '%busca%'` — substring, case-insensitive, paginado) e os testes rodam contra
-  stub. Falta o comando literal contra a VPS:
-  `curl -H "X-Api-Key: ..." "{hub}/v1/instruments?query=td:tesouro-ipca-2035-05-15"`,
-  conferindo que o id volta idêntico ao consultado (§10.9).
+  <br>**VERIFICADO em produção, 2026-09-06**, depois do deploy. A pendência do `curl` contra
+  o Hub deployado está fechada, e passou:
+
+  - catálogo do Hub com **150 instrumentos**, ids no formato `td:<slug>` — bate byte a byte
+    com o que o `HubCatalogoClient` compara por `Ordinal`. O vazio da primeira tentativa era
+    o exemplo da §5.1 (`td:tesouro-ipca-2035-05-15`) não ser um instrumento real;
+  - `POST /v1/operacoes` com instrumento real: **201**, uma linha em `operacoes` e uma na
+    `outbox`, `publicado_em` nulo (o relay é o F4) — a ADR-3 provada contra o banco;
+  - o payload da outbox traz `"quantidade": "2.50000000"` e `"valorFinanceiro": "1000.00"`
+    como **string decimal**, honrando a §5.1, e omite `estornaTradeId` por ser aplicação;
+  - reenvio com a mesma `Idempotency-Key`: **200**, mesma linha. Idempotência funcionando.
+
+  O dado de teste foi removido com `TRUNCATE` logo em seguida — em tabela append-only ele não
+  sairia de outro jeito, e o F4 o publicaria para a Custódia. Ver `LEIA-ME-KIT.md`.
 
   **Pré-requisito cumprido fora deste repo:** `estornaTradeId` acrescentado ao contrato
   `trades.registered` na §5.1 do `ARQUITETURA.md` (`plataforma-docs`, commit `b2a58a6`),
