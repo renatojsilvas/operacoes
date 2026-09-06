@@ -789,33 +789,42 @@ revisões outra vez sobre o delta. E peça ao guardião que audite também **os 
 README de infra, comentário de workflow, descrição de alerta. Nesta fase, um dos dois defeitos
 que ele achou estava num `.md`, não em `.cs`.
 
-## O broker estava sem topologia nenhuma, e nenhum sinal apontava para isso
+## Perder o volume do broker apaga fila e binding, e a outbox não protege contra isso
 
 Na prova em produção do F4, o `PUT` do binding falhou com `no exchange 'prices' in vhost '/'`.
-Inspecionando o broker: **nenhum exchange além dos `amq.*`, nenhuma fila**. Topologia zero, num
-broker que existe desde o F4 do `hub-precos`.
+O broker estava sem a topologia da §5.
 
-O exchange é declarado no `ObterConexaoAsync`, e a conexão só acontece na **primeira
-publicação**. Topologia vazia, portanto, significa que o relay do `hub` nunca publicou com
-sucesso em produção — e ninguém percebeu, porque nada aponta para isso: o container está
-`healthy` (o relay fica fora do `/health/ready`, de propósito), o deploy passa, e
-`hub_relay_ciclos_total{outcome="success"}` sobe alegremente a cada ciclo que encontra a outbox
-vazia e nem chega a abrir conexão.
+**Minha primeira conclusão foi errada, e vale mais registrada do que apagada.** Eu inferi "o
+relay do `hub` nunca publicou em produção", porque o exchange é declarado na conexão e a
+conexão só ocorre na primeira publicação. A inferência é válida; a premissa não foi checada. Um
+comando desmentiu: a outbox do `hub` tem **2609 linhas, todas com `publicado_em`**, publicadas
+entre 2026-08-24 e 2026-09-05 06:15. O relay dele funcionou. O container do broker foi criado
+em 2026-09-05 10:21 — **depois** — e levou a topologia durável junto com o volume. Como a
+outbox do `hub` está vazia desde então, nada mais publicou, nada reconectou, nada redeclarou.
 
-Eu tinha escrito esse limite no comentário do próprio workflow, ao portar o smoke test — "com a
-outbox vazia o ciclo fecha com sucesso sem falar com o broker; ele prova agendamento, não
-publicação". Escrever o limite não é a mesma coisa que agir sobre ele: a métrica continuou
-sendo a única evidência de relay no deploy dos dois serviços, e ela é verde nos dois cenários
-opostos ("publicou tudo" e "nunca conectou").
+Eu escrevi essa conclusão errada no PR, no commit, no `ROADMAP` e aqui, e ela foi mergeada.
+É a §10.9 de novo: verifiquei com um equivalente (a ausência do exchange) em vez do literal (a
+tabela que diz se publicou).
 
-**Regra:** métrica de ciclo não é métrica de efeito. Se o sucesso do ciclo pode ocorrer sem o
-efeito acontecer, ela não prova o efeito — e o caminho vazio costuma ser o caminho normal em
-produção. O que prova conexão é uma asserção sobre o **broker**: a topologia existir (o
-exchange declarado), ou um contador de eventos publicados **maior que zero**. Vale a mesma
-lógica da §10.8: asserção que passa nos dois cenários precisa de controle positivo.
+**O achado verdadeiro é pior que o falso.** Depois de uma recriação do broker:
 
-**E o corolário de sempre:** a prova em produção achou em dez minutos o que quatro revisões e
-uma suíte de 398 testes não achariam nunca, porque o defeito não estava no código deste repo —
-estava na ausência de um efeito no ambiente. `LEIA-ME-KIT.md` e `PADROES.md` §10.17 já diziam
-"commit mergeado não é commit em produção"; isto é a versão seguinte, "deploy verde não é
-efeito acontecendo".
+- o **exchange** volta sozinho, declarado pelo primeiro publicador que conectar;
+- a **fila e o binding do consumidor não voltam** — ninguém os declara do lado de cá;
+- e evento publicado num exchange topic **sem binding casando é descartado em silêncio**, com o
+  publish confirmado e a outbox marcando `publicado_em` normalmente.
+
+Ou seja: a outbox garante que o evento **sai**, não que alguém o **recebe**. Entre a recriação
+do broker e a redeclaração da fila do consumidor existe uma janela em que tudo fica verde —
+deploy, healthcheck, `relay_ciclos_total{outcome="success"}`, `outbox_pendentes=0` — e os
+eventos evaporam. Nenhum alerta atual pega isso: eles vigiam backlog e falha de ciclo, e aqui
+não há backlog nem falha.
+
+**Regra:** topologia de consumidor é estado do broker, não do código, e não sobrevive ao
+volume. Depois de recriar o broker, recrie fila e bindings **antes** de qualquer publicação. E
+o alerta que falta na plataforma não é sobre a outbox — é sobre o exchange `prices` ter os
+bindings esperados, ou sobre `custodia.prices` existir.
+
+**Corolário sobre a prova:** o smoke test do relay no deploy continua provando apenas
+agendamento e alcance do Postgres — com a outbox vazia o ciclo fecha com sucesso sem abrir
+conexão. Isso eu tinha escrito no comentário do workflow ao portar o teste; escrever o limite
+não é agir sobre ele. Métrica de ciclo não é métrica de efeito.
