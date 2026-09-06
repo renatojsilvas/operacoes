@@ -344,7 +344,7 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   `trades.registered` na §5.1 do `ARQUITETURA.md` (`plataforma-docs`, commit `b2a58a6`),
   antes do código que emite o payload.
 
-- [ ] **F4** — relay outbox → RabbitMQ publicando `trades.registered` no exchange
+- [x] **F4** — relay outbox → RabbitMQ publicando `trades.registered` no exchange
   `prices` (§5 — sim, o exchange se chama `prices` e carrega trades também). É **porte
   do hub**: `../hub-precos/src/Hub.Application/Outbox/` e `Hub.Infrastructure/Messaging/`.
   Leve junto o que doeu lá: marcar `publicado_em` só no **maior prefixo contíguo
@@ -371,31 +371,31 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   <br>**Pronto:** `POST /operacoes` seguido de mensagem chegando numa fila de teste
   bindada em `trades.registered`, e a linha da outbox com `publicado_em`.
 
-  <br>**Estado (2026-09-06): implementado e revisado, NÃO fechado** — o checkbox continua
-  desmarcado de propósito, porque o critério de pronto acima é uma prova em produção que ainda
-  não foi feita. O código está na árvore: relay em Quartz, publisher confirms, `PublicacaoRejeitada`
-  separado de `BrokerIndisponivel`, 398 testes, cobertura 91,61%.
+  <br>**FECHADO em 2026-09-06 (PR #10).** 398 testes, cobertura de linha 91,61%. Provado
+  contra produção, não contra stub:
 
-  Duas revisões em série acharam coisas disjuntas. O `guardiao-padroes` achou o
-  `infra/grafana/README.md` descrevendo o repo pré-F4 (10 painéis/2 regras, contra 14/4
-  entregues no mesmo diff). O `revisor` achou o defeito grave: o publish disparava o lote
-  inteiro antes do primeiro `await`, então uma mensagem-veneno na cabeça da fila fazia as
-  seguintes serem republicadas a cada tick, sem limite — medido em 3 ciclos, 6 entregas. A
-  correção (aguardar cada confirm dentro do laço) está na `PADROES.md` §10.26, junto com o
-  motivo de NÃO se poder pular o veneno. O `advisor` também reprovou uma supressão de warning
-  do EF que tinha ido parar no caminho de produção (`LEIA-ME-KIT.md`).
+  - fila de teste bindada em `trades.registered` **criada antes do POST** — em exchange topic,
+    mensagem sem binding casando é descartada em silêncio, e a prova daria falso negativo com
+    o relay funcionando;
+  - `POST /v1/operacoes` com instrumento real (`td:tesouro-educa-mais-2030-12-15`, do catálogo
+    do Hub): **201**;
+  - a mensagem chegou na fila com `exchange: prices`, `routing_key: trades.registered`,
+    `type: TradeRegistered`, `delivery_mode: 2` (persistente), e o payload com
+    `"quantidade": "1.50000000"` e `"valorFinanceiro": "1000.00"` como **string decimal**,
+    sem `estornaTradeId` por ser aplicação — a §5.1 honrada no evento, não só no código;
+  - a linha da outbox com `publicado_em` preenchido: o relay fechando o ciclo.
 
-  **O mesmo defeito está no `hub-precos`**, de onde este código foi portado — pede tarefa
-  própria naquele repo, não é consertável daqui.
+  Dado de teste removido com `TRUNCATE` em seguida (tabela append-only; a limpeza foi decidida
+  **antes** do POST, conferindo que as tabelas estavam em 0/0).
 
-  **Bloqueio para o merge:** os secrets `RABBITMQ_USER` e `RABBITMQ_PASSWORD` não existem
-  neste repositório (`gh secret list`). O `docker-compose.prod.yml` passou a exigi-los sem
-  default, então o deploy falha alto e claro até que sejam criados com os mesmos valores que o
-  `hub-precos` usa — é ele quem provisionou o broker.
-
-  **A prova em produção deixa lixo:** ela grava numa tabela append-only, onde `UPDATE`/`DELETE`
-  são bloqueados por trigger. Decida a limpeza (`TRUNCATE`, enquanto for o único dado) ANTES
-  de rodar o POST — ver `LEIA-ME-KIT.md`, "Teste manual em tabela append-only".
+  **Achado da prova, sobre a plataforma e não sobre este repo:** o broker estava **sem
+  topologia nenhuma** — nenhum exchange além dos `amq.*`, nenhuma fila. O `prices` teve que ser
+  declarado para o binding existir. Como o declare acontece na conexão, e a conexão só acontece
+  na primeira publicação, isso significa que **o relay do `hub-precos` nunca publicou com
+  sucesso em produção**. É a confirmação empírica do limite que já estava escrito no workflow:
+  `operacoes_relay_ciclos_total{outcome="success"}` sobe com a outbox vazia sem o relay falar
+  com o broker — ele prova agendamento, não publicação. Vale investigar no repo do hub, junto
+  com a correção da §10.26.
 
 - [ ] **F5** — `GET /operacoes/instrumentos?query=...` (§6): proxy do catálogo do Hub
   com cache curto, no padrão `MapReadGet` do molde. Conveniências que são **de

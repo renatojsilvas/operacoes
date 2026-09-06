@@ -788,3 +788,34 @@ estado reporta como defeito real o que já não existe.
 revisões outra vez sobre o delta. E peça ao guardião que audite também **os textos** —
 README de infra, comentário de workflow, descrição de alerta. Nesta fase, um dos dois defeitos
 que ele achou estava num `.md`, não em `.cs`.
+
+## O broker estava sem topologia nenhuma, e nenhum sinal apontava para isso
+
+Na prova em produção do F4, o `PUT` do binding falhou com `no exchange 'prices' in vhost '/'`.
+Inspecionando o broker: **nenhum exchange além dos `amq.*`, nenhuma fila**. Topologia zero, num
+broker que existe desde o F4 do `hub-precos`.
+
+O exchange é declarado no `ObterConexaoAsync`, e a conexão só acontece na **primeira
+publicação**. Topologia vazia, portanto, significa que o relay do `hub` nunca publicou com
+sucesso em produção — e ninguém percebeu, porque nada aponta para isso: o container está
+`healthy` (o relay fica fora do `/health/ready`, de propósito), o deploy passa, e
+`hub_relay_ciclos_total{outcome="success"}` sobe alegremente a cada ciclo que encontra a outbox
+vazia e nem chega a abrir conexão.
+
+Eu tinha escrito esse limite no comentário do próprio workflow, ao portar o smoke test — "com a
+outbox vazia o ciclo fecha com sucesso sem falar com o broker; ele prova agendamento, não
+publicação". Escrever o limite não é a mesma coisa que agir sobre ele: a métrica continuou
+sendo a única evidência de relay no deploy dos dois serviços, e ela é verde nos dois cenários
+opostos ("publicou tudo" e "nunca conectou").
+
+**Regra:** métrica de ciclo não é métrica de efeito. Se o sucesso do ciclo pode ocorrer sem o
+efeito acontecer, ela não prova o efeito — e o caminho vazio costuma ser o caminho normal em
+produção. O que prova conexão é uma asserção sobre o **broker**: a topologia existir (o
+exchange declarado), ou um contador de eventos publicados **maior que zero**. Vale a mesma
+lógica da §10.8: asserção que passa nos dois cenários precisa de controle positivo.
+
+**E o corolário de sempre:** a prova em produção achou em dez minutos o que quatro revisões e
+uma suíte de 398 testes não achariam nunca, porque o defeito não estava no código deste repo —
+estava na ausência de um efeito no ambiente. `LEIA-ME-KIT.md` e `PADROES.md` §10.17 já diziam
+"commit mergeado não é commit em produção"; isto é a versão seguinte, "deploy verde não é
+efeito acontecendo".
