@@ -828,3 +828,37 @@ bindings esperados, ou sobre `custodia.prices` existir.
 agendamento e alcance do Postgres — com a outbox vazia o ciclo fecha com sucesso sem abrir
 conexão. Isso eu tinha escrito no comentário do workflow ao portar o teste; escrever o limite
 não é agir sobre ele. Métrica de ciclo não é métrica de efeito.
+
+## Guarda que sumiu junto com um tag flutuante, e o run avisava
+
+O deploy dos três repos usava `appleboy/ssh-action@v1` com `script_stop: true`. Esse input
+**foi removido da action**, e o `@v1` — tag flutuante — já aponta para uma versão que não o
+conhece. O run diz isso em toda execução, numa anotação amarela:
+
+```
+Unexpected input(s) 'script_stop', valid inputs are ['host', 'port', ..., 'script', 'envs', ...]
+```
+
+Ninguém leu. Anotação amarela em job verde é exatamente o que se aprende a não ver.
+
+No `operacoes` e no `hub-precos` não houve consequência: os scripts já começam com `set -e`, e
+era ele que vinha fazendo o trabalho. No `tesouro-direto` houve: o script **não tem `set -e`** e
+dependia inteiramente do `script_stop`. Pior, o comentário ao lado documenta o incidente que
+motivou a guarda — *"sem parada em erro, um comando que falha não para a execução; a última
+linha (`docker image prune -f`) sempre sucede, então o healthcheck testa o container ANTIGO que
+continua respondendo 200, fechando o job VERDE mesmo com deploy quebrado no meio"*. Ou seja: o
+modo de falha estava reaberto havia tempo indeterminado, com o comentário jurando que estava
+coberto.
+
+**O comentário virou a única evidência da guarda, e ele não é executável.** Um teste teria
+pegado; um comentário nunca pega.
+
+**Regra:** a parada em erro tem que vir de dentro do script (`set -e`), não de um input de
+action de terceiro — `set -e` não depende de versão de nada. E tag flutuante (`@v1`, `@v4`)
+significa que a dependência muda sozinha: o que hoje é input válido amanhã é ignorado em
+silêncio, e o aviso vem no canal que ninguém lê. Ou se pina por SHA, ou não se apoia guarda
+nenhuma no comportamento dela.
+
+**Corolário sobre onde procurar:** isto não apareceu em revisão de código nem em teste — apareceu
+lendo a saída de um deploy que tinha passado. Vale a mesma lição da §10.11: coisa estranha no
+log de um deploy verde não é ruído.

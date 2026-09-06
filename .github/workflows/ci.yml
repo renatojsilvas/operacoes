@@ -106,7 +106,11 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
+          # A parada em erro vem do `set -e` na primeira linha do script, NAO de
+          # `script_stop: true`: esse input foi removido do appleboy/ssh-action, e o tag
+          # flutuante `@v1` ja aponta para uma versao que nao o conhece — o run anota
+          # "Unexpected input(s) 'script_stop'" e segue. Ele estava aqui sem efeito
+          # nenhum. Ver LEIA-ME-KIT.md, "Guarda que sumiu junto com um tag flutuante".
           envs: OPERACOES_APP_PASSWORD,OPERACOES_API_KEY,OPERACOES_HUB_BASE_URL,OPERACOES_HUB_API_KEY,RABBITMQ_USER,RABBITMQ_PASSWORD
           script: |
             set -e
@@ -290,7 +294,7 @@ jobs:
             # conexão em saída vazia e apaga essa diferença.
             #
             # POR QUE OS DOIS DESFECHOS (401 x "nunca respondeu") REPROVAM O JOB DE FORMAS
-            # DIFERENTES: com script_stop: true, qualquer "exit 1" aqui reprova o job "deploy"
+            # DIFERENTES: com `set -e`, qualquer "exit 1" aqui reprova o job "deploy"
             # do operacoes inteiro — inclusive o "esperando ficar healthy" e os smoke tests que
             # vêm depois, que não dependem do broker. 401 é problema NOSSO e acionável (secret
             # deste repo divergindo do que o broker aceitou), então continua reprovando: não tem
