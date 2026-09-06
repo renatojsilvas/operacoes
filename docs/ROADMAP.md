@@ -388,14 +388,25 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   Dado de teste removido com `TRUNCATE` em seguida (tabela append-only; a limpeza foi decidida
   **antes** do POST, conferindo que as tabelas estavam em 0/0).
 
-  **Achado da prova, sobre a plataforma e não sobre este repo:** o broker estava **sem
-  topologia nenhuma** — nenhum exchange além dos `amq.*`, nenhuma fila. O `prices` teve que ser
-  declarado para o binding existir. Como o declare acontece na conexão, e a conexão só acontece
-  na primeira publicação, isso significa que **o relay do `hub-precos` nunca publicou com
-  sucesso em produção**. É a confirmação empírica do limite que já estava escrito no workflow:
-  `operacoes_relay_ciclos_total{outcome="success"}` sobe com a outbox vazia sem o relay falar
-  com o broker — ele prova agendamento, não publicação. Vale investigar no repo do hub, junto
-  com a correção da §10.26.
+  **Achado da prova, sobre a plataforma e não sobre este repo:** o broker estava **sem a
+  topologia da §5** — o exchange `prices` não existia, e o `PUT` do binding falhou com
+  `no exchange 'prices' in vhost '/'`. Ele teve que ser declarado para a prova seguir.
+
+  A causa, levantada depois (a primeira leitura foi apressada e está corrigida aqui): a outbox
+  do `hub` tem **2609 linhas, todas com `publicado_em`**, publicadas entre 2026-08-24 e
+  2026-09-05 06:15 — o relay dele **funcionou**. O container do broker foi criado em
+  2026-09-05 10:21, ~4h depois da última publicação, perdendo a topologia durável junto com o
+  volume. Como a outbox do `hub` está vazia desde então, o relay dele não teve o que publicar,
+  não reconectou e não redeclarou nada.
+
+  **O que isso ensina, e é pior do que parece:** o exchange é restaurado pelo primeiro
+  publicador (o declare acontece na conexão), mas **fila e binding do consumidor não são
+  restaurados por ninguém**. E evento publicado em exchange topic sem binding casando é
+  **descartado em silêncio** — com a outbox marcando `publicado_em` normalmente, porque o
+  publish foi confirmado. A outbox garante que o evento **sai**; ela não garante que alguém o
+  **recebe**. Depois de qualquer recriação do broker, a `custodia.prices` e seus bindings
+  precisam ser recriados **antes** de qualquer publicação, ou os eventos desse intervalo somem
+  sem sinal nenhum.
 
 - [ ] **F5** — `GET /operacoes/instrumentos?query=...` (§6): proxy do catálogo do Hub
   com cache curto, no padrão `MapReadGet` do molde. Conveniências que são **de
