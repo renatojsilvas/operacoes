@@ -635,3 +635,60 @@ achando que a árvore é dele.
 **Corolário sobre relato:** quando um agente descreve o repo com convicção, pergunte **de
 quando** é a leitura dele. Aqui a diferença entre "achado grave" e "alarme falso" era só o
 carimbo de tempo.
+
+## Gate de compose no CI passa com dummy — e não protege o `.env` de quem desenvolve
+
+No F3 acrescentei `OPERACOES_HUB_BASE_URL` e `OPERACOES_HUB_API_KEY` ao `docker-compose.yml`
+como obrigatórias (`${VAR:?}`). O *Compose config gate* do CI ficou verde, o PR ficou verde,
+e mesmo assim o `docker compose` **local do dono estava quebrado** a partir daquele commit:
+
+```
+error while interpolating services.operacoes.environment.[]:
+required variable OPERACOES_HUB_BASE_URL is missing a value
+```
+
+O gate passa porque o job do CI **escreve um `.env` com valores dummy** antes de rodar. Ele
+valida a sintaxe do YAML e a existência das tags — não valida que alguém com um `.env` real,
+anterior à mudança, continua conseguindo subir. Quem descobriu foi o dono, perguntando outra
+coisa.
+
+É a §10.9 noutra roupa: validar com um equivalente (o `.env` sintético do CI) em vez do
+literal (o `.env` que existe na máquina). E é gêmeo da §10.20 — a asserção herdada afirma
+funcionalidade que o ambiente real não tem.
+
+**Regra:** variável nova obrigatória no compose é **mudança quebrante para todo mundo que já
+tem `.env`**. No mesmo commit: acrescente ao `.env.example` (o CI não lê isso), diga no PR que
+o `.env` local precisa das linhas novas, e — se puder — rode `docker compose config -q`
+**sem** o `.env` do CI, com o arquivo real, para ver o erro que o outro vai ver. Um gate que
+constrói o próprio insumo não testa o insumo de ninguém.
+
+## Porta publicada no compose local não existe em produção
+
+Para provar o contrato do Hub contra a VPS, montei o comando com
+`http://127.0.0.1:5080` — a porta que o `docker-compose.yml` **local** do hub publica. Na VPS
+não há nada ali: o `docker-compose.prod.yml` do hub **não publica porta nenhuma**, de
+propósito, porque o Hub é infraestrutura interna consumida serviço-a-serviço (§6 do
+`ARQUITETURA.md`). O `docker ps` mostra a diferença numa coluna: `8080/tcp` (só exposta)
+contra `127.0.0.1:5000->8080/tcp` (publicada) do vizinho.
+
+Eu tinha lido a §6 e mesmo assim deduzi a topologia de produção do arquivo de
+desenvolvimento. O caminho certo era pela rede: `docker exec` de dentro de um container que
+já está na `plataforma`, batendo no alias DNS — o que, de quebra, é um teste **melhor**,
+porque prova o percurso real do código (resolução de alias + chave) e não só o contrato HTTP.
+
+**Regra:** `docker-compose.yml` e `docker-compose.prod.yml` descrevem topologias diferentes,
+e a de produção costuma publicar **menos**. Antes de escrever um endereço de produção, leia o
+compose **de produção** — ou, melhor, confirme com `docker ps` na máquina, que é o estado e
+não a intenção.
+
+## `curl -s` transforma falha de conexão em saída vazia
+
+O mesmo comando errado voltou **sem nenhuma mensagem** — nem erro, nem código. `-s` (silent)
+suprime a mensagem de erro do curl, e sem `-w` ou `--fail` não sobra nada que distinga
+"conexão recusada" de "servidor respondeu 200 com corpo vazio". São diagnósticos opostos e a
+saída é idêntica.
+
+**Regra:** em comando de verificação, `-sS` (o `S` devolve o erro) e sempre
+`-w '%{http_code}'`. Vale a mesma lógica da §10.15: distinguir "não conectou" de "conectou e
+recusou" é o que manda o operador para o lado certo. Um comando de prova cuja falha é
+silenciosa não é prova.
