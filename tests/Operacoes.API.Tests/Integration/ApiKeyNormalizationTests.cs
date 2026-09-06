@@ -9,16 +9,9 @@ namespace Operacoes.API.Tests.Integration;
 public sealed class ApiKeyNormalizationTests
 {
     private const string ApiKeyHeader = ApiTestFactory.ApiKeyHeader;
-
-    // Não há endpoint de negócio neste F1 (ver docs/ROADMAP.md) e as rotas "_test/*" só existem em
-    // Testing — aqui o factory sobe em "Production", então usamos um caminho protegido qualquer
-    // (placeholder do futuro grupo /v1, ver comentário em Program.cs). Sem rota mapeada, uma
-    // requisição AUTORIZADA cai em 404 (passou pelo middleware, não achou endpoint) — o que já
-    // basta para distinguir de 401 (rejeitada pelo middleware).
     private const string ProtectedPath = "/v1/operacoes";
     private const string WrongApiKey = "chave-completamente-errada-e-nunca-configurada";
     private const string BaseApiKey = "normalization-test-api-key-0123456789";
-
     [Fact]
     public async Task Get_ConfiguredKeyWithTrailingSpace_ShouldAuthenticateWithTrimmedKeyAndReject401ForWrongKey()
     {
@@ -27,15 +20,14 @@ public sealed class ApiKeyNormalizationTests
         try
         {
             using var client = factory.CreateClient();
-
             using var trimmedKeyRequest = new HttpRequestMessage(HttpMethod.Get, ProtectedPath);
+
             trimmedKeyRequest.Headers.Add(ApiKeyHeader, BaseApiKey);
             var trimmedKeyResponse = await client.SendAsync(trimmedKeyRequest, CancellationToken.None);
-
             using var wrongKeyRequest = new HttpRequestMessage(HttpMethod.Get, ProtectedPath);
+
             wrongKeyRequest.Headers.Add(ApiKeyHeader, WrongApiKey);
             var wrongKeyResponse = await client.SendAsync(wrongKeyRequest, CancellationToken.None);
-
             Assert.NotEqual(HttpStatusCode.Unauthorized, trimmedKeyResponse.StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, wrongKeyResponse.StatusCode);
         }
@@ -53,15 +45,14 @@ public sealed class ApiKeyNormalizationTests
         try
         {
             using var client = factory.CreateClient();
-
             using var trimmedKeyRequest = new HttpRequestMessage(HttpMethod.Get, ProtectedPath);
+
             trimmedKeyRequest.Headers.Add(ApiKeyHeader, BaseApiKey);
             var trimmedKeyResponse = await client.SendAsync(trimmedKeyRequest, CancellationToken.None);
-
             using var wrongKeyRequest = new HttpRequestMessage(HttpMethod.Get, ProtectedPath);
+
             wrongKeyRequest.Headers.Add(ApiKeyHeader, WrongApiKey);
             var wrongKeyResponse = await client.SendAsync(wrongKeyRequest, CancellationToken.None);
-
             Assert.NotEqual(HttpStatusCode.Unauthorized, trimmedKeyResponse.StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, wrongKeyResponse.StatusCode);
         }
@@ -79,11 +70,10 @@ public sealed class ApiKeyNormalizationTests
         try
         {
             using var client = factory.CreateClient();
-
             using var request = new HttpRequestMessage(HttpMethod.Get, ProtectedPath);
+
             request.Headers.Add(ApiKeyHeader, BaseApiKey);
             var response = await client.SendAsync(request, CancellationToken.None);
-
             Assert.NotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
         }
         finally
@@ -95,9 +85,7 @@ public sealed class ApiKeyNormalizationTests
     private sealed class ProductionApiKeyFactory(string configuredApiKey) : WebApplicationFactory<Program>
     {
         private const string ConnectionStringEnvVar = "ConnectionStrings__DefaultConnection";
-
         private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine").Build();
-
         public async Task InitializeAsync()
         {
             await _postgres.StartAsync();
@@ -112,6 +100,8 @@ public sealed class ApiKeyNormalizationTests
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ApiKey:Key"] = configuredApiKey,
+                    ["Hub:BaseUrl"] = "http://hub.invalid/",
+                    ["Hub:ApiKey"] = "hub-api-key-para-teste-de-normalizacao",
                 });
             });
         }

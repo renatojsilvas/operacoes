@@ -2,7 +2,6 @@ using Operacoes.Domain.Common;
 
 namespace Operacoes.Domain.Outbox;
 
-// Idêntica à do hub-precos de propósito: o relay do F4 é porte direto (ver docs/ROADMAP.md, F2).
 public sealed class OutboxMessage
 {
 #pragma warning disable CS8618

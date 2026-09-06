@@ -572,3 +572,66 @@ na revisão junto com o código. Mande o `guardiao-padroes` conferir explicitame
 que EU escrevi descrevem o que o código faz?", com essas palavras, e liste os arquivos.
 E antes de escrever "a ferramenta não permite X", procure X na documentação da **versão que
 você está usando** — leva um minuto e é a diferença entre uma regra e uma crença.
+
+## `git ls-files` não lista o que ainda não foi rastreado
+
+Mandei varrer todos os `.cs` do repo para apagar comentários e escrevi o alvo como
+`git ls-files '*.cs'`. Ele lista só arquivo **rastreado**. Os 26 arquivos novos da fase em
+curso — que eram exatamente os arquivos com o código novo — nunca tinham sido `git add`ados,
+então ficaram de fora. Pior: **a minha verificação usou o mesmo comando**, então ela confirmou
+o próprio ponto cego e eu relatei ao dono que estava feito. Quem achou foi ele, abrindo um
+arquivo no editor.
+
+É a mesma família de "Escrever no repo certo e esquecer de rastrear lá", com a agravante de
+que aqui o comando errado apareceu **duas vezes**: na ação e na conferência dela.
+
+**Regra:** varredura que se propõe a cobrir "todos os arquivos" usa
+`git ls-files` **mais** `git ls-files --others --exclude-standard`, ou `find`. E a verificação
+tem que usar um caminho **diferente** do da ação — verificar com o mesmo comando que executou
+não é verificação, é repetição. Se a ação foi por `git ls-files`, confira por `find`.
+
+## Mandar "não reformate" não impede o agente de reformatar
+
+Na mesma varredura, o spec dizia explicitamente "não reindente nem reformate nada além disso".
+O agente removeu, junto com os comentários, **1092 linhas em branco** de 74 arquivos — 53 deles
+sem um único comentário, ou seja, reescritos à toa. `using` colado no `namespace`, membros
+colados uns nos outros.
+
+E o meu teste de integridade não pegou porque eu comparei o "esqueleto de código" **filtrando
+linhas em branco antes de comparar**. Verifiquei exatamente a dimensão que não estava em risco.
+Build verde e 306 testes passando não diziam nada sobre isso: linha em branco é whitespace, não
+muda semântica nenhuma em C#.
+
+**Regra:** quando a instrução é "mude X e só X", o teste de verificação tem que medir **Y** —
+a coisa que não era para mudar. Medir X de novo só confirma que a parte pedida aconteceu.
+Aqui o certo era contar linhas em branco antes e depois, que é uma linha de shell.
+
+**Corolário barato:** o estrago só foi reversível porque a maioria dos arquivos existia na
+`main`. Para os que a fase tinha acabado de alterar, a formatação anterior estava só no working
+tree e **se perdeu** — tive que reconstruí-la por heurística. Varredura destrutiva ampla merece
+um commit (ou `git stash`) antes, mesmo que o trabalho ainda não esteja pronto para virar
+commit de verdade.
+
+## Subagente que terminou continua retomável — e com um retrato velho da árvore
+
+No F3 o executor do POST terminou, entregou, e eu segui trabalhando na MESMA working tree:
+varri comentários, mandei corrigir achados do guardião e do revisor, acrescentei código novo.
+Horas depois a notificação dele disparou de novo e ele reportou, alarmado, que "outra sessão"
+estava mexendo no repo — 40 arquivos modificados que ele não reconhecia, incluindo migrations
+já aplicadas. Não havia outra sessão. Era eu, em série, depois que ele parou.
+
+Ele acertou em **não** editar nada e perguntar. O risco, se tivesse agido, era grosso: teria
+reescrito por cima do estado atual usando o modelo que ele guardava de antes — devolvendo os
+comentários recém-apagados e desfazendo correções que ele nunca viu. E o relatório dele teria
+saído com cara de autoridade, descrevendo um repo que não existe mais.
+
+**Regra:** subagente que terminou não é subagente que morreu — ele continua retomável e
+carrega um retrato congelado da árvore no instante em que parou. Antes de retomar um agente
+(`SendMessage`) depois de ter mexido nos arquivos dele, ou você o informa do que mudou, ou
+despacha um agente **novo**. E se a fase vai ter várias rodadas de correção na mesma árvore,
+prefira despachar em série e tratar cada rodada como agente novo, em vez de manter um vivo
+achando que a árvore é dele.
+
+**Corolário sobre relato:** quando um agente descreve o repo com convicção, pergunte **de
+quando** é a leitura dele. Aqui a diferença entre "achado grave" e "alarme falso" era só o
+carimbo de tempo.

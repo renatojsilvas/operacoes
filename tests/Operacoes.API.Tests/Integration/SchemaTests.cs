@@ -8,11 +8,9 @@ namespace Operacoes.API.Tests.Integration;
 public sealed class SchemaTests
 {
     private readonly string _connectionString;
-
     public SchemaTests(ApiTestFactory factory)
     {
         _ = factory;
-
         _connectionString =
             Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
             ?? throw new InvalidOperationException(
@@ -33,7 +31,6 @@ public sealed class SchemaTests
         string? ColumnDefault,
         int? NumericPrecision,
         int? NumericScale);
-
     private async Task<IReadOnlyDictionary<string, ColumnInfo>> GetColumnsAsync(
         NpgsqlConnection connection, string tableName)
     {
@@ -49,7 +46,6 @@ public sealed class SchemaTests
             WHERE table_schema = 'public' AND table_name = @tableName
             """,
             new { tableName });
-
         return rows.ToDictionary(r => r.ColumnName);
     }
 
@@ -77,7 +73,6 @@ public sealed class SchemaTests
         IReadOnlyList<string> ColunasOrigem,
         string TabelaReferenciada,
         IReadOnlyList<string> ColunasReferenciadas);
-
     private async Task<ForeignKeyInfo?> GetForeignKeyAsync(
         NpgsqlConnection connection, string tableName, string referencedTableName)
     {
@@ -99,7 +94,6 @@ public sealed class SchemaTests
               AND dst.relname = @referencedTableName
             """,
             new { tableName, referencedTableName });
-
         return row is null
             ? null
             : new ForeignKeyInfo(row.ConfDelType, row.ColunasOrigem, referencedTableName, row.ColunasReferenciadas);
@@ -116,18 +110,14 @@ public sealed class SchemaTests
         Assert.True(
             columns.ContainsKey(columnName),
             $"{tableName}: coluna '{columnName}' não existe. Colunas encontradas: [{string.Join(", ", columns.Keys)}]");
-
         var column = columns[columnName];
-
         Assert.True(
             string.Equals(column.DataType, expectedDataType, StringComparison.Ordinal),
             $"{tableName}.{columnName}: tipo esperado '{expectedDataType}', encontrado '{column.DataType}'.");
-
         var expectedIsNullableFlag = expectedNullable ? "YES" : "NO";
         Assert.True(
             string.Equals(column.IsNullable, expectedIsNullableFlag, StringComparison.Ordinal),
             $"{tableName}.{columnName}: nullability esperada '{expectedIsNullableFlag}', encontrada '{column.IsNullable}'.");
-
         if (expectNoDefault)
         {
             Assert.True(
@@ -142,7 +132,6 @@ public sealed class SchemaTests
         using var connection = await OpenConnectionAsync();
 
         var exists = await TableExistsAsync(connection, "operacoes");
-
         Assert.True(exists, "Tabela 'operacoes' não existe no schema public após as migrations.");
     }
 
@@ -150,19 +139,17 @@ public sealed class SchemaTests
     public async Task Operacoes_ColunasBatemComORoadmapF2()
     {
         using var connection = await OpenConnectionAsync();
-        var columns = await GetColumnsAsync(connection, "operacoes");
 
+        var columns = await GetColumnsAsync(connection, "operacoes");
         var expected = new[]
         {
             "id", "cliente_id", "instrumento_id", "operacao", "quantidade",
             "valor_financeiro", "data_evento", "registrado_em", "estorna_operacao_id",
         };
-
         Assert.True(
             expected.ToHashSet().SetEquals(columns.Keys),
             "operacoes: conjunto de colunas divergente. Esperado: " +
             $"[{string.Join(", ", expected)}], encontrado: [{string.Join(", ", columns.Keys)}].");
-
         AssertColumn(columns, "operacoes", "id", "text", expectedNullable: false, expectNoDefault: false);
         AssertColumn(columns, "operacoes", "cliente_id", "text", expectedNullable: false);
         AssertColumn(columns, "operacoes", "instrumento_id", "text", expectedNullable: false);
@@ -171,30 +158,30 @@ public sealed class SchemaTests
         AssertColumn(columns, "operacoes", "valor_financeiro", "numeric", expectedNullable: false);
         AssertColumn(columns, "operacoes", "data_evento", "date", expectedNullable: false);
         AssertColumn(columns, "operacoes", "estorna_operacao_id", "text", expectedNullable: true);
-
         var quantidade = columns["quantidade"];
         Assert.True(
             quantidade.NumericPrecision == 18 && quantidade.NumericScale == 8,
             "operacoes.quantidade: esperava numeric(18,8), encontrado " +
             $"numeric({quantidade.NumericPrecision},{quantidade.NumericScale}).");
-
         var valorFinanceiro = columns["valor_financeiro"];
         Assert.True(
             valorFinanceiro.NumericPrecision == 18 && valorFinanceiro.NumericScale == 2,
             "operacoes.valor_financeiro: esperava numeric(18,2), encontrado " +
             $"numeric({valorFinanceiro.NumericPrecision},{valorFinanceiro.NumericScale}).");
+
+        Assert.Equal(quantidade.NumericPrecision, OperacaoNumericLimits.QuantidadePrecisao);
+        Assert.Equal(quantidade.NumericScale, OperacaoNumericLimits.QuantidadeEscala);
+        Assert.Equal(valorFinanceiro.NumericPrecision, OperacaoNumericLimits.ValorFinanceiroPrecisao);
+        Assert.Equal(valorFinanceiro.NumericScale, OperacaoNumericLimits.ValorFinanceiroEscala);
     }
 
     [Fact]
     public async Task Operacoes_RegistradoEm_TemDefaultNow()
     {
         using var connection = await OpenConnectionAsync();
+
         var columns = await GetColumnsAsync(connection, "operacoes");
-
-        // Prova de presença: diferente da outbox (decisão do F2), registrado_em tem DEFAULT now()
-        // no servidor — asserção explícita, não inferida da ausência de outra coisa.
         AssertColumn(columns, "operacoes", "registrado_em", "timestamp with time zone", expectedNullable: false, expectNoDefault: false);
-
         var registradoEm = columns["registrado_em"];
         Assert.True(
             registradoEm.ColumnDefault is not null && registradoEm.ColumnDefault.Contains("now()", StringComparison.OrdinalIgnoreCase),
@@ -205,11 +192,8 @@ public sealed class SchemaTests
     public async Task Outbox_CriadoEm_NaoTemDefault()
     {
         using var connection = await OpenConnectionAsync();
-        var columns = await GetColumnsAsync(connection, "outbox");
 
-        // Prova de ausência: ao contrário de operacoes.registrado_em, outbox.criado_em NÃO tem
-        // DEFAULT no servidor (replica o hub-precos fielmente, decisão do F2). INSERT manual sem
-        // essa coluna falha por NOT NULL — é intencional.
+        var columns = await GetColumnsAsync(connection, "outbox");
         AssertColumn(columns, "outbox", "criado_em", "timestamp with time zone", expectedNullable: false, expectNoDefault: true);
     }
 
@@ -227,7 +211,6 @@ public sealed class SchemaTests
             WHERE c.relname = 'operacoes'
               AND i.indisprimary
             """);
-
         Assert.Equal(new[] { "id" }, pk);
     }
 
@@ -243,13 +226,10 @@ public sealed class SchemaTests
               AND tablename = 'operacoes'
               AND indexname = 'ix_operacoes_cliente'
             """);
-
         Assert.True(indexDef is not null, "Índice 'ix_operacoes_cliente' não existe em operacoes.");
-
         Assert.True(
             indexDef!.Contains("cliente_id", StringComparison.OrdinalIgnoreCase),
             $"ix_operacoes_cliente: esperava indexar 'cliente_id', encontrado: '{indexDef}'.");
-
         Assert.True(
             indexDef.Contains("data_evento DESC", StringComparison.OrdinalIgnoreCase),
             $"ix_operacoes_cliente: esperava 'data_evento DESC' na definição do índice, encontrado: '{indexDef}'.");
@@ -267,13 +247,10 @@ public sealed class SchemaTests
               AND tablename = 'operacoes'
               AND indexname = 'ix_operacoes_estorna_unico'
             """);
-
         Assert.True(indexDef is not null, "Índice 'ix_operacoes_estorna_unico' não existe em operacoes.");
-
         Assert.True(
             indexDef!.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase),
             $"ix_operacoes_estorna_unico: esperava UNIQUE, encontrado: '{indexDef}'.");
-
         Assert.True(
             indexDef.Contains("WHERE", StringComparison.OrdinalIgnoreCase)
             && indexDef.Contains("estorna_operacao_id", StringComparison.OrdinalIgnoreCase)
@@ -294,15 +271,11 @@ public sealed class SchemaTests
               AND tablename = 'operacoes'
               AND indexname = 'ix_operacoes_estorna_cliente_instrumento'
             """);
-
         Assert.True(
             indexDef is not null,
             "Índice 'ix_operacoes_estorna_cliente_instrumento' não existe em operacoes. " +
             "Este é o índice de cobertura da FK composta — o EF Core o cria de qualquer jeito, " +
             "e precisa ter nome explícito na convenção do repo.");
-
-        // Ordem importa: é a ordem das colunas da FK composta (estorna_operacao_id, cliente_id,
-        // instrumento_id) — fora de ordem, o índice deixa de cobrir a FK com eficiência.
         var colunas = await connection.QueryAsync<string>(
             """
             SELECT a.attname
@@ -314,7 +287,6 @@ public sealed class SchemaTests
               AND ic.relname = 'ix_operacoes_estorna_cliente_instrumento'
             ORDER BY array_position(i.indkey, a.attnum)
             """);
-
         Assert.Equal(
             new[] { "estorna_operacao_id", "cliente_id", "instrumento_id" },
             colunas);
@@ -325,11 +297,6 @@ public sealed class SchemaTests
     {
         using var connection = await OpenConnectionAsync();
 
-        // Todo índice de operacoes/outbox que não é o mecanismo de suporte de uma constraint
-        // (pg_constraint nomeia PK_/FK_/ck_/ux_ e cria o índice correspondente com o MESMO nome)
-        // precisa começar com "ix_" e ser inteiramente minúsculo. É a guarda de verdade contra o
-        // defeito que motivou esta correção: nomear um índice hoje não impede o EF de gerar outro
-        // amanhã, sem nome, se a configuração explícita for esquecida.
         var indexNames = await connection.QueryAsync<string>(
             """
             SELECT i.relname
@@ -342,15 +309,8 @@ public sealed class SchemaTests
                   WHERE con.conindid = idx.indexrelid
               )
             """);
-
         var names = indexNames.ToList();
-
-        // Controle positivo (PADROES.md §10.8): sem isto, uma query que voltasse vazia — erro de
-        // sintaxe, rename de tabela — faria o foreach abaixo não executar nenhuma asserção e o
-        // teste passaria mentindo. ix_operacoes_cliente é índice comum (não-constraint) e sabidamente
-        // existe (ver Operacoes_IndiceCliente_EhClienteIdEDataEventoDescendente acima).
         Assert.Contains("ix_operacoes_cliente", names);
-
         foreach (var name in names)
         {
             Assert.True(
@@ -366,18 +326,11 @@ public sealed class SchemaTests
         using var connection = await OpenConnectionAsync();
 
         var fk = await GetForeignKeyAsync(connection, "operacoes", "operacoes");
-
         Assert.True(fk is not null, "operacoes: não encontrei FK auto-referente de estorna_operacao_id.");
-
-        // Correção do defeito A (revisor): a FK é composta — (estorna_operacao_id, cliente_id,
-        // instrumento_id) -> operacoes(id, cliente_id, instrumento_id) — não mais só
-        // estorna_operacao_id -> id. Isso garante que um estorno só referencia uma operação do MESMO
-        // cliente e do MESMO instrumento.
         Assert.Equal(
             new[] { "estorna_operacao_id", "cliente_id", "instrumento_id" },
             fk!.ColunasOrigem);
         Assert.Equal(new[] { "id", "cliente_id", "instrumento_id" }, fk.ColunasReferenciadas);
-
         Assert.True(
             fk.ConfDelType == 'r',
             $"operacoes.(estorna_operacao_id, cliente_id, instrumento_id) -> operacoes(id, cliente_id, instrumento_id): " +
@@ -390,7 +343,6 @@ public sealed class SchemaTests
         using var connection = await OpenConnectionAsync();
 
         var exists = await TableExistsAsync(connection, "outbox");
-
         Assert.True(exists, "Tabela 'outbox' não existe no schema public após as migrations.");
     }
 
@@ -398,15 +350,13 @@ public sealed class SchemaTests
     public async Task Outbox_ColunasBatemComORoadmapF2()
     {
         using var connection = await OpenConnectionAsync();
+
         var columns = await GetColumnsAsync(connection, "outbox");
-
         var expected = new[] { "id", "tipo", "routing_key", "payload", "criado_em", "publicado_em" };
-
         Assert.True(
             expected.ToHashSet().SetEquals(columns.Keys),
             "outbox: conjunto de colunas divergente. Esperado: " +
             $"[{string.Join(", ", expected)}], encontrado: [{string.Join(", ", columns.Keys)}].");
-
         AssertColumn(columns, "outbox", "id", "bigint", expectedNullable: false, expectNoDefault: false);
         AssertColumn(columns, "outbox", "tipo", "text", expectedNullable: false, expectNoDefault: false);
         AssertColumn(columns, "outbox", "routing_key", "text", expectedNullable: false, expectNoDefault: false);
@@ -426,9 +376,7 @@ public sealed class SchemaTests
               AND tablename = 'outbox'
               AND indexname = 'ix_outbox_pendentes'
             """);
-
         Assert.True(indexDef is not null, "Índice 'ix_outbox_pendentes' não existe em outbox.");
-
         Assert.True(
             indexDef!.Contains("WHERE", StringComparison.OrdinalIgnoreCase)
             && indexDef.Contains("publicado_em", StringComparison.OrdinalIgnoreCase)
@@ -436,10 +384,6 @@ public sealed class SchemaTests
             "ix_outbox_pendentes: esperava índice PARCIAL com predicado " +
             $"'publicado_em IS NULL', encontrado: '{indexDef}'.");
     }
-
-    // --- Prova de ausência (ADR-12 / §7.2): sem tabela de clientes, sem tabela de instrumentos, sem
-    // de-para local, e sem índice único sobre campos de negócio (dois aportes idênticos no mesmo dia
-    // são legítimos — PADROES.md, decisão do F2). ---
 
     [Theory]
     [InlineData("clientes")]
@@ -452,7 +396,6 @@ public sealed class SchemaTests
         using var connection = await OpenConnectionAsync();
 
         var exists = await TableExistsAsync(connection, tableName);
-
         Assert.False(
             exists,
             $"Tabela '{tableName}' não deveria existir (ADR-12/§7.2: sem FK, sem tabela local, sem de-para).");
@@ -474,23 +417,14 @@ public sealed class SchemaTests
               AND NOT i.indisprimary
             GROUP BY i.indexrelid
             """);
-
         var sets = uniqueColumnSets.ToList();
-
-        // Controle positivo (PADROES.md §10.8): sem isto, uma consulta que voltasse vazia — por
-        // erro na query, rename de tabela, etc. — faria o foreach abaixo não executar nenhuma
-        // asserção e o teste passaria mentindo. ix_operacoes_estorna_unico é único, não-primário e
-        // sabidamente existe (ver Operacoes_IndiceEstornoUnico_EhUnicoEParcial acima).
         Assert.Contains(
             sets,
             set => set == "estorna_operacao_id");
-
         var camposDeNegocio = new[] { "cliente_id", "instrumento_id", "operacao", "quantidade", "valor_financeiro", "data_evento" };
-
         foreach (var set in sets)
         {
             var colunas = set.Split(',');
-
             Assert.True(
                 colunas.Any(c => !camposDeNegocio.Contains(c)),
                 "operacoes: encontrei um índice único que só cobre campos de negócio " +
@@ -498,26 +432,20 @@ public sealed class SchemaTests
         }
     }
 
-    // --- Prova de imutabilidade (trigger criada pela migration): UPDATE e DELETE em operacoes
-    // falham; o INSERT em si é o controle positivo (PADROES.md §10.8 — asserção negativa precisa
-    // de controle positivo). ---
-
     [Fact]
     public async Task Operacoes_Insert_Funciona_ControlePositivo()
     {
         using var connection = await OpenConnectionAsync();
-        var id = $"op-schema-tests-{Guid.NewGuid():N}";
 
+        var id = $"op-schema-tests-{Guid.NewGuid():N}";
         await connection.ExecuteAsync(
             """
             INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento)
             VALUES (@id, 'cliente-1', 'td:tesouro-selic-2029', 'aporte', 10.5, 1000.00, '2026-01-01')
             """,
             new { id });
-
         var count = await connection.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM operacoes WHERE id = @id", new { id });
-
         Assert.Equal(1, count);
     }
 
@@ -525,18 +453,16 @@ public sealed class SchemaTests
     public async Task Operacoes_Update_EhBloqueadoPelaTrigger()
     {
         using var connection = await OpenConnectionAsync();
-        var id = $"op-schema-tests-{Guid.NewGuid():N}";
 
+        var id = $"op-schema-tests-{Guid.NewGuid():N}";
         await connection.ExecuteAsync(
             """
             INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento)
             VALUES (@id, 'cliente-1', 'td:tesouro-selic-2029', 'aporte', 10.5, 1000.00, '2026-01-01')
             """,
             new { id });
-
         var exception = await Record.ExceptionAsync(() => connection.ExecuteAsync(
             "UPDATE operacoes SET quantidade = 99 WHERE id = @id", new { id }));
-
         Assert.NotNull(exception);
         var pgException = Assert.IsType<PostgresException>(exception);
         Assert.Contains("append-only", pgException.MessageText, StringComparison.OrdinalIgnoreCase);
@@ -546,30 +472,22 @@ public sealed class SchemaTests
     public async Task Operacoes_Delete_EhBloqueadoPelaTrigger()
     {
         using var connection = await OpenConnectionAsync();
-        var id = $"op-schema-tests-{Guid.NewGuid():N}";
 
+        var id = $"op-schema-tests-{Guid.NewGuid():N}";
         await connection.ExecuteAsync(
             """
             INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento)
             VALUES (@id, 'cliente-1', 'td:tesouro-selic-2029', 'aporte', 10.5, 1000.00, '2026-01-01')
             """,
             new { id });
-
         var exception = await Record.ExceptionAsync(() => connection.ExecuteAsync(
             "DELETE FROM operacoes WHERE id = @id", new { id }));
-
         Assert.NotNull(exception);
         var pgException = Assert.IsType<PostgresException>(exception);
         Assert.Contains("append-only", pgException.MessageText, StringComparison.OrdinalIgnoreCase);
     }
 
-    // --- Prova das guardas de estorno (defeito A do revisor — dado irreparável): CHECKs
-    // ck_operacoes_estorno_nao_auto / ck_operacoes_estorno_coerente, e a FK composta que amarra
-    // cliente_id e instrumento_id. Cada asserção negativa vem acompanhada do seu controle positivo
-    // (PADROES.md §10.8). ---
-
     private sealed record ConstraintRow(string ConName, char ConType);
-
     private async Task InsertOperacaoAsync(
         NpgsqlConnection connection,
         string id,
@@ -598,25 +516,17 @@ public sealed class SchemaTests
             JOIN pg_class c ON c.oid = con.conrelid
             WHERE c.relname = 'operacoes'
             """);
-
         var constraints = rows.ToDictionary(r => r.ConName, r => r.ConType);
-
         Assert.True(
             constraints.TryGetValue("ck_operacoes_estorno_nao_auto", out var tipoNaoAuto) && tipoNaoAuto == 'c',
             "ck_operacoes_estorno_nao_auto: CHECK constraint não encontrado em operacoes.");
-
         Assert.True(
             constraints.TryGetValue("ck_operacoes_estorno_coerente", out var tipoCoerente) && tipoCoerente == 'c',
             "ck_operacoes_estorno_coerente: CHECK constraint não encontrado em operacoes.");
-
         Assert.True(
             constraints.TryGetValue("FK_operacoes_operacoes_estorna_operacao_id", out var tipoFk) && tipoFk == 'f',
             "FK_operacoes_operacoes_estorna_operacao_id: FOREIGN KEY constraint não encontrado em operacoes.");
     }
-
-    // --- Item 3 da segunda revisão adversarial: `operacao` não tinha restrição de domínio no banco
-    // — INSERT com operacao = 'valor-que-nao-existe' e estorna_operacao_id NULL era aceito e gravava
-    // lixo permanente numa tabela append-only (PADROES.md §10.21, §10.8 para o controle positivo). ---
 
     [Fact]
     public async Task Operacoes_CheckOperacaoValida_Existe()
@@ -630,17 +540,12 @@ public sealed class SchemaTests
             JOIN pg_class c ON c.oid = con.conrelid
             WHERE c.relname = 'operacoes'
             """);
-
         var constraints = rows.ToDictionary(r => r.ConName, r => r.ConType);
-
         Assert.True(
             constraints.TryGetValue("ck_operacoes_operacao_valida", out var tipo) && tipo == 'c',
             "ck_operacoes_operacao_valida: CHECK constraint não encontrado em operacoes.");
     }
 
-    // Lê o próprio texto do CHECK no catálogo (pg_get_constraintdef) e compara com TipoOperacao.All —
-    // prova que os dois lugares batem de fato, em vez de presumir que quem editou um lembrou do
-    // outro. O comentário na migration e na configuration avisam; este teste confere.
     [Fact]
     public async Task Operacoes_CheckOperacaoValida_BateExatamenteComTipoOperacaoAll()
     {
@@ -653,19 +558,13 @@ public sealed class SchemaTests
             JOIN pg_class c ON c.oid = con.conrelid
             WHERE c.relname = 'operacoes' AND con.conname = 'ck_operacoes_operacao_valida'
             """);
-
         Assert.True(definicao is not null, "ck_operacoes_operacao_valida: definição não encontrada.");
-
-        // definicao vem como: CHECK ((operacao = ANY (ARRAY['aplicacao'::text, 'resgate'::text, ...])))
         var valoresNoCheck = System.Text.RegularExpressions.Regex
             .Matches(definicao!, @"'([^']+)'::text")
             .Select(m => m.Groups[1].Value)
             .ToHashSet();
-
         Assert.NotEmpty(valoresNoCheck);
-
         var valoresEsperados = TipoOperacao.All.Select(t => t.Name).ToHashSet();
-
         Assert.True(
             valoresEsperados.SetEquals(valoresNoCheck),
             "ck_operacoes_operacao_valida diverge de TipoOperacao.All — os dois têm que andar " +
@@ -677,18 +576,15 @@ public sealed class SchemaTests
     public async Task Operacoes_Insert_OperacaoComValorInvalido_EhRejeitado()
     {
         using var connection = await OpenConnectionAsync();
-        var id = $"op-schema-tests-{Guid.NewGuid():N}";
 
+        var id = $"op-schema-tests-{Guid.NewGuid():N}";
         var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
             connection, id, "cliente-1", "td:tesouro-selic-2029", "valor-que-nao-existe"));
-
         Assert.NotNull(exception);
         var pgException = Assert.IsType<PostgresException>(exception);
         Assert.Equal("ck_operacoes_operacao_valida", pgException.ConstraintName);
     }
 
-    // Controle positivo (PADROES.md §10.8): os quatro valores de TipoOperacao.All são aceitos pelo
-    // CHECK — sem isto, a asserção negativa acima poderia estar rejeitando TUDO por engano.
     [Theory]
     [InlineData("aplicacao")]
     [InlineData("resgate")]
@@ -696,10 +592,9 @@ public sealed class SchemaTests
     public async Task Operacoes_Insert_TipoValidoSemEstorno_EhAceito(string operacao)
     {
         using var connection = await OpenConnectionAsync();
+
         var id = $"op-schema-tests-{Guid.NewGuid():N}";
-
         await InsertOperacaoAsync(connection, id, "cliente-1", "td:tesouro-selic-2029", operacao);
-
         var count = await connection.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM operacoes WHERE id = @id", new { id });
         Assert.Equal(1, count);
@@ -709,13 +604,12 @@ public sealed class SchemaTests
     public async Task Operacoes_Insert_TipoEstornoValido_EhAceito()
     {
         using var connection = await OpenConnectionAsync();
+
         var original = $"op-schema-tests-{Guid.NewGuid():N}";
         await InsertOperacaoAsync(connection, original, "cliente-1", "td:tesouro-selic-2029", "aporte");
-
         var estorno = $"op-schema-tests-{Guid.NewGuid():N}";
         await InsertOperacaoAsync(
             connection, estorno, "cliente-1", "td:tesouro-selic-2029", "estorno", estornaOperacaoId: original);
-
         var count = await connection.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM operacoes WHERE id = @estorno", new { estorno });
         Assert.Equal(1, count);
@@ -725,11 +619,10 @@ public sealed class SchemaTests
     public async Task Operacoes_Insert_EstornaOperacaoIdIgualAoProprioId_EhRejeitado()
     {
         using var connection = await OpenConnectionAsync();
-        var id = $"op-schema-tests-{Guid.NewGuid():N}";
 
+        var id = $"op-schema-tests-{Guid.NewGuid():N}";
         var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
             connection, id, "cliente-1", "td:tesouro-selic-2029", "estorno", estornaOperacaoId: id));
-
         Assert.NotNull(exception);
         var pgException = Assert.IsType<PostgresException>(exception);
         Assert.Equal("ck_operacoes_estorno_nao_auto", pgException.ConstraintName);
@@ -739,13 +632,12 @@ public sealed class SchemaTests
     public async Task Operacoes_Insert_AporteComEstornaOperacaoId_EhRejeitado()
     {
         using var connection = await OpenConnectionAsync();
+
         var original = $"op-schema-tests-{Guid.NewGuid():N}";
         await InsertOperacaoAsync(connection, original, "cliente-1", "td:tesouro-selic-2029", "aporte");
-
         var id = $"op-schema-tests-{Guid.NewGuid():N}";
         var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
             connection, id, "cliente-1", "td:tesouro-selic-2029", "aporte", estornaOperacaoId: original));
-
         Assert.NotNull(exception);
         var pgException = Assert.IsType<PostgresException>(exception);
         Assert.Equal("ck_operacoes_estorno_coerente", pgException.ConstraintName);
@@ -755,11 +647,10 @@ public sealed class SchemaTests
     public async Task Operacoes_Insert_EstornoSemEstornaOperacaoId_EhRejeitado()
     {
         using var connection = await OpenConnectionAsync();
-        var id = $"op-schema-tests-{Guid.NewGuid():N}";
 
+        var id = $"op-schema-tests-{Guid.NewGuid():N}";
         var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
             connection, id, "cliente-1", "td:tesouro-selic-2029", "estorno"));
-
         Assert.NotNull(exception);
         var pgException = Assert.IsType<PostgresException>(exception);
         Assert.Equal("ck_operacoes_estorno_coerente", pgException.ConstraintName);
@@ -769,13 +660,12 @@ public sealed class SchemaTests
     public async Task Operacoes_Insert_EstornoApontandoParaOutroCliente_EhRejeitado()
     {
         using var connection = await OpenConnectionAsync();
+
         var original = $"op-schema-tests-{Guid.NewGuid():N}";
         await InsertOperacaoAsync(connection, original, "cliente-1", "td:tesouro-selic-2029", "aporte");
-
         var id = $"op-schema-tests-{Guid.NewGuid():N}";
         var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
             connection, id, "cliente-2", "td:tesouro-selic-2029", "estorno", estornaOperacaoId: original));
-
         Assert.NotNull(exception);
         var pgException = Assert.IsType<PostgresException>(exception);
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, pgException.SqlState);
@@ -786,82 +676,61 @@ public sealed class SchemaTests
     public async Task Operacoes_Insert_EstornoApontandoParaOutroInstrumento_EhRejeitado()
     {
         using var connection = await OpenConnectionAsync();
+
         var original = $"op-schema-tests-{Guid.NewGuid():N}";
         await InsertOperacaoAsync(connection, original, "cliente-1", "td:tesouro-selic-2029", "aporte");
-
         var id = $"op-schema-tests-{Guid.NewGuid():N}";
         var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
             connection, id, "cliente-1", "td:tesouro-ipca-2035", "estorno", estornaOperacaoId: original));
-
         Assert.NotNull(exception);
         var pgException = Assert.IsType<PostgresException>(exception);
         Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, pgException.SqlState);
         Assert.Equal("FK_operacoes_operacoes_estorna_operacao_id", pgException.ConstraintName);
     }
 
-    // Controle positivo (PADROES.md §10.8): sem isto, as asserções negativas acima poderiam estar
-    // rejeitando TUDO por engano (ex.: um erro de sintaxe no INSERT) em vez de rejeitar só o inválido.
     [Fact]
     public async Task Operacoes_Insert_EstornoValido_EhAceito()
     {
         using var connection = await OpenConnectionAsync();
+
         var original = $"op-schema-tests-{Guid.NewGuid():N}";
         await InsertOperacaoAsync(connection, original, "cliente-1", "td:tesouro-selic-2029", "aporte");
-
         var estorno = $"op-schema-tests-{Guid.NewGuid():N}";
         await InsertOperacaoAsync(
             connection, estorno, "cliente-1", "td:tesouro-selic-2029", "estorno", estornaOperacaoId: original);
-
         var count = await connection.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM operacoes WHERE id = @estorno", new { estorno });
         Assert.Equal(1, count);
     }
 
-    // Prova de A4: a cadeia de estornos (op-C estorna op-B, que estornou op-A) continua permitida —
-    // é a única saída para corrigir um estorno que entrou errado, já que UPDATE/DELETE são bloqueados.
     [Fact]
     public async Task Operacoes_Insert_EstornoDeEstorno_EhAceito()
     {
         using var connection = await OpenConnectionAsync();
+
         var opA = $"op-schema-tests-{Guid.NewGuid():N}";
         await InsertOperacaoAsync(connection, opA, "cliente-1", "td:tesouro-selic-2029", "aporte");
-
         var opB = $"op-schema-tests-{Guid.NewGuid():N}";
         await InsertOperacaoAsync(connection, opB, "cliente-1", "td:tesouro-selic-2029", "estorno", estornaOperacaoId: opA);
-
         var opC = $"op-schema-tests-{Guid.NewGuid():N}";
         await InsertOperacaoAsync(connection, opC, "cliente-1", "td:tesouro-selic-2029", "estorno", estornaOperacaoId: opB);
-
         var count = await connection.ExecuteScalarAsync<long>(
             "SELECT COUNT(*) FROM operacoes WHERE id = @opC", new { opC });
         Assert.Equal(1, count);
     }
 
-    // --- Item 1 da segunda revisão adversarial: Domínio e banco discordavam para estornaOperacaoId
-    // vazio ou só espaços — `Operacao.Create(..., estornaOperacaoId: "   ")` devolvia IsSuccess = true
-    // e o INSERT correspondente violava ck_operacoes_estorno_coerente lá no banco (500 em vez de 4xx
-    // no F3). PADROES.md §10.19: dado com dois canais de saída precisa de um teste por canal — aqui o
-    // ponto é mais forte, os dois canais precisam CONCORDAR. Para cada combinação, esta prova roda os
-    // dois caminhos que uma referência de estorno pode seguir: se o Domínio aceita, o valor que ele
-    // guardaria (já trimado) é o que se tenta inserir — é o que a persistência real faria; se o
-    // Domínio rejeita, o valor CRU é que se tenta inserir direto, provando que o banco também
-    // bloquearia se algo algum dia contornasse o Domínio. Nenhuma das duas camadas é a única linha de
-    // defesa. ---
-
     public static IEnumerable<object?[]> CombinacoesDeEstornaOperacaoId()
     {
-        // (estornaOperacaoIdBruto, ehEstorno) — "REF" é substituído por um id real de uma operação
-        // já existente (mesmo cliente/instrumento) na hora do teste.
-        yield return new object?[] { null, false }; // sem referência, não-estorno: ambos aceitam
-        yield return new object?[] { null, true }; // sem referência, estorno: ambos rejeitam
+        yield return new object?[] { null, false };
+        yield return new object?[] { null, true };
         yield return new object?[] { "", false };
         yield return new object?[] { "", true };
         yield return new object?[] { "   ", false };
         yield return new object?[] { "   ", true };
-        yield return new object?[] { "REF", false }; // referência preenchida fora de estorno: ambos rejeitam
-        yield return new object?[] { "REF", true }; // referência válida, estorno: ambos aceitam
+        yield return new object?[] { "REF", false };
+        yield return new object?[] { "REF", true };
         yield return new object?[] { " REF ", false };
-        yield return new object?[] { " REF ", true }; // com espaços ao redor: Domínio trima e persiste trimado
+        yield return new object?[] { " REF ", true };
     }
 
     [Theory]
@@ -874,7 +743,6 @@ public sealed class SchemaTests
         var instrumentoId = "td:tesouro-selic-2029";
         var id = $"op-schema-tests-{Guid.NewGuid():N}";
         var tipo = ehEstorno ? TipoOperacao.Estorno : TipoOperacao.Aporte;
-
         string? estornaOperacaoIdEfetivo = estornaOperacaoIdBruto;
         if (estornaOperacaoIdBruto is not null && estornaOperacaoIdBruto.Contains("REF"))
         {
@@ -882,7 +750,6 @@ public sealed class SchemaTests
             await InsertOperacaoAsync(connection, referenciaOriginalId, clienteId, instrumentoId, "aporte");
             estornaOperacaoIdEfetivo = estornaOperacaoIdBruto.Replace("REF", referenciaOriginalId);
         }
-
         var domainResult = Operacao.Create(
             id: id,
             clienteId: clienteId,
@@ -892,15 +759,12 @@ public sealed class SchemaTests
             valorFinanceiro: 1000m,
             dataEvento: new DateOnly(2026, 1, 1),
             registradoEm: DateTimeOffset.UtcNow,
+            hoje: new DateOnly(2026, 1, 1),
             estornaOperacaoId: estornaOperacaoIdEfetivo);
-
         if (domainResult.IsSuccess)
         {
-            // O Domínio aceitou: insere exatamente o valor que ele guardaria (já normalizado) — é
-            // o que a persistência real gravaria via repositório. O banco tem que concordar.
             var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
                 connection, id, clienteId, instrumentoId, tipo.Name, domainResult.Value.EstornaOperacaoId));
-
             Assert.True(
                 exception is null,
                 "Domínio aceitou, mas o banco rejeitou a mesma operação já normalizada: " +
@@ -909,12 +773,8 @@ public sealed class SchemaTests
         }
         else
         {
-            // O Domínio rejeitou: tenta inserir o valor CRU direto no banco, contornando o Domínio.
-            // Se o banco aceitasse, o Domínio seria a única linha de defesa contra esse dado — e a
-            // tabela é append-only, então dado errado ali é irreversível (PADROES.md §10.21).
             var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
                 connection, id, clienteId, instrumentoId, tipo.Name, estornaOperacaoIdEfetivo));
-
             Assert.True(
                 exception is not null,
                 "Domínio rejeitou, mas o banco aceitou o mesmo valor cru — dado irreparável numa " +
@@ -924,15 +784,7 @@ public sealed class SchemaTests
         }
     }
 
-    // --- Terceira auditoria de conformidade: normalização aplicada a um campo só (EstornaOperacaoId
-    // trimava, id/clienteId/instrumentoId não) — mesmo defeito do LEIA-ME-KIT ("Normalizar de um lado
-    // só"), agora corrigido em Operacao.Create. Esta prova é irmã de
-    // DominioEBanco_ConcordamSobreEstornaOperacaoId: cobre os outros três identificadores gravados na
-    // mesma tabela append-only, confirmando que Domínio e banco concordam sobre o valor TRIMADO que de
-    // fato é persistido — sem isto, " op-1 " e "op-1" virariam duas linhas distintas e permanentes. ---
-
     private sealed record LinhaOperacao(string Id, string ClienteId, string InstrumentoId);
-
     [Theory]
     [InlineData("id")]
     [InlineData("clienteId")]
@@ -944,11 +796,9 @@ public sealed class SchemaTests
         var idBase = $"op-schema-tests-{Guid.NewGuid():N}";
         var clienteIdBase = $"cliente-concordancia-{Guid.NewGuid():N}";
         var instrumentoIdBase = "td:tesouro-selic-2029";
-
         var idComEspacos = campo == "id" ? $" {idBase} " : idBase;
         var clienteIdComEspacos = campo == "clienteId" ? $" {clienteIdBase} " : clienteIdBase;
         var instrumentoIdComEspacos = campo == "instrumentoId" ? $" {instrumentoIdBase} " : instrumentoIdBase;
-
         var domainResult = Operacao.Create(
             id: idComEspacos,
             clienteId: clienteIdComEspacos,
@@ -957,29 +807,21 @@ public sealed class SchemaTests
             quantidade: 10m,
             valorFinanceiro: 1000m,
             dataEvento: new DateOnly(2026, 1, 1),
-            registradoEm: DateTimeOffset.UtcNow);
-
+            registradoEm: DateTimeOffset.UtcNow,
+            hoje: new DateOnly(2026, 1, 1));
         Assert.True(domainResult.IsSuccess, $"Domínio deveria aceitar '{campo}' com espaços ao redor.");
         var operacao = domainResult.Value;
-
-        // Grava exatamente o que o Domínio guardaria (já trimado) — é o que a persistência real faz
-        // via repositório. O banco tem que aceitar sem reclamar.
         var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
             connection, operacao.Id, operacao.ClienteId, operacao.InstrumentoId, "aporte"));
-
         Assert.True(
             exception is null,
             $"Domínio aceitou '{campo}' trimado, mas o banco rejeitou o INSERT: {exception}.");
-
         var linha = await connection.QuerySingleAsync<LinhaOperacao>(
             """
             SELECT id AS "Id", cliente_id AS "ClienteId", instrumento_id AS "InstrumentoId"
             FROM operacoes WHERE id = @id
             """,
             new { id = operacao.Id });
-
-        // O valor gravado é o BASE (sem espaços) nos três campos — não só no que variou no Theory,
-        // porque Operacao.Create trima os três independentemente de qual deles recebeu o espaço.
         Assert.Equal(idBase, linha.Id);
         Assert.Equal(clienteIdBase, linha.ClienteId);
         Assert.Equal(instrumentoIdBase, linha.InstrumentoId);
