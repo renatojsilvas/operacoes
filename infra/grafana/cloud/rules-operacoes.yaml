@@ -55,6 +55,127 @@ groups:
           severity: critical
           service: operacoes
         isPaused: false
+      - uid: operacoes-outbox-backlog-velho
+        title: Operações — Backlog da outbox envelhecido
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __DS_PROM__
+            model:
+              expr: max(operacoes_outbox_pendente_mais_antiga_segundos{job="operacoes"})
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 900
+                    type: gt
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        dashboardUid: ""
+        panelId: 0
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: Mensagem mais antiga da outbox pendente há mais de 15 minutos
+          description: >-
+            Mesma forma de hub-outbox-backlog-velho (repo hub-precos, rules.yaml): idade
+            (operacoes_outbox_pendente_mais_antiga_segundos), não contagem
+            (operacoes_outbox_pendentes) de propósito — backlog transitório é normal (o
+            relay drena a cada 5s, Outbox:Relay:IntervaloSegundos), backlog VELHO é o
+            sintoma real. 15 minutos (900s) é folga generosa sobre essa cadência: uma
+            mensagem só fica velha se algo está impedindo o dreno, não por variação
+            normal de carga. noDataState=Alerting de propósito: esta métrica só é
+            gravada em RelayOutboxJob quando o ciclo termina com sucesso; ausência
+            prolongada dela significa que o relay nunca conseguiu ler o backlog desde o
+            boot — app fora do ar ou Postgres inacessível — e isso precisa soar, não
+            calar. Se este alerta disparar com operacoes-relay-falha-persistente também
+            firing, o problema é o broker plataforma-rabbitmq ou o Postgres
+            compartilhado; se disparar sozinho, o relay está lendo mas não drenando na
+            velocidade necessária (TamanhoLote/MaxLotesPorCiclo pequenos demais para o
+            volume, ou publish lento). Verifique os logs do container operacoes-app para
+            o RelayOutboxJob e o painel "Ciclos de relay por desfecho". Diferente do
+            hub-precos, este backlog nasce quase sempre vazio em operação normal — se
+            ele nunca esteve vazio desde o deploy, suspeite primeiro de credencial do
+            broker divergente (ver o step de verificação de credencial no deploy, em
+            .github/workflows/ci.yml).
+        labels:
+          severity: critical
+          service: operacoes
+        isPaused: false
+      - uid: operacoes-relay-falha-persistente
+        title: Operações — Relay outbox falhando persistentemente
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __DS_PROM__
+            model:
+              expr: increase(operacoes_relay_ciclos_total{job="operacoes",outcome="failure"}[5m])
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 30
+                    type: gt
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        dashboardUid: ""
+        panelId: 0
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: Mais de 30 ciclos de relay da outbox falharam nos últimos 5 minutos
+          description: >-
+            Mesma forma de hub-relay-falha-persistente (repo hub-precos, rules.yaml). O
+            relay roda a cada 5s (Outbox:Relay:IntervaloSegundos), até 60 ciclos
+            possíveis em 5m; 30 é metade. Esta regra existe porque o alerta de idade do
+            backlog (operacoes-outbox-backlog-velho) NÃO pega todo cenário: quando o
+            próprio ciclo falha (ex.: plataforma-rabbitmq fora do ar ou inalcançável pela
+            rede "plataforma", ou Postgres compartilhado inacessível ao ler pendentes),
+            RelayOutboxJob só registra o desfecho "failure" — o gauge de idade do
+            backlog não é atualizado nesse caminho, então ele CONGELA no último valor
+            bom em vez de crescer, e pode ficar abaixo do threshold de idade por um bom
+            tempo. noDataState=OK porque o desfecho do ciclo é registrado
+            incondicionalmente a cada execução (sucesso OU falha) enquanto o processo
+            estiver de pé; ausência de dado aqui é "app não está rodando", coberto por
+            operacoes-app-down, não por esta regra. O operacoes não é dono do
+            plataforma-rabbitmq: se este alerta disparar, o primeiro passo é conferir o
+            deploy/estado do hub-precos (quem sobe o broker) antes de investigar o
+            próprio operacoes. Os logs do RelayOutboxJob distinguem duas causas raiz
+            diferentes: Outbox.PublicacaoRejeitada significa que o broker está VIVO e foi
+            a FILA DESTINO quem rejeitou a publicação (nack do publisher confirm) — checar
+            o x-max-length da fila e se algum consumidor de custodia.prices está parado,
+            não o hub-precos; já Outbox.BrokerIndisponivel mantém o roteiro acima (broker
+            fora do ar ou inalcançável, conferir o hub-precos).
+        labels:
+          severity: critical
+          service: operacoes
+        isPaused: false
       - uid: operacoes-db-readiness-down
         title: Operações — DB/readiness down
         condition: C

@@ -10,11 +10,17 @@ services:
       - Hub__BaseUrl=${OPERACOES_HUB_BASE_URL:?OPERACOES_HUB_BASE_URL e obrigatorio (URL do Hub de Precos)}
       - Hub__ApiKey=${OPERACOES_HUB_API_KEY:?OPERACOES_HUB_API_KEY e obrigatorio (chave que o operacoes envia ao Hub)}
       - Loki__Uri=${OPERACOES_LOKI_URI:-http://alloy:3100}
-      # RabbitMq__*: sem valor aqui de proposito. O F1 e esqueleto — nao ha cliente
-      # RabbitMQ, outbox nem relay no codigo (ver docs/ROADMAP.md) — entao uma variavel
-      # obrigatoria (${VAR:?...}) para uma config que a aplicacao ignora so derrubaria
-      # o deploy por nada. Volta junto com o relay no F4, quando a aplicacao passar a
-      # falar de verdade com o broker `plataforma-rabbitmq`.
+      # F4: o relay outbox -> RabbitMQ existe de verdade agora, entao a credencial do
+      # broker `plataforma-rabbitmq` passa a ser obrigatoria em producao, sem default
+      # (mesma logica de OPERACOES_APP_PASSWORD acima: cair para "guest" em silencio
+      # contra um broker real produz falha de autenticacao em runtime, longe da causa —
+      # ja houve incidente neste ecossistema com credencial errada calando um servico).
+      # O broker em si NAO sobe neste compose: e servico da PLATAFORMA, provisionado
+      # pelo hub-precos (ver docker-compose.prod.yml de la); o operacoes so entra na
+      # rede "plataforma" (abaixo) e fala com o alias DNS "plataforma-rabbitmq".
+      - RabbitMq__Host=plataforma-rabbitmq
+      - RabbitMq__User=${RABBITMQ_USER:?RABBITMQ_USER e obrigatorio (usuario do broker plataforma-rabbitmq, provisionado pelo hub-precos)}
+      - RabbitMq__Password=${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD e obrigatorio (senha do broker plataforma-rabbitmq, provisionado pelo hub-precos)}
 
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]

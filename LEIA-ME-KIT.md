@@ -714,3 +714,77 @@ trás e como se remove. Em tabela append-only a resposta costuma ser "nada remov
 o teste roda em ambiente descartável, ou é a primeira escrita e se limpa com `TRUNCATE`
 imediatamente, ou não se faz. **E decida a limpeza ANTES de rodar**, não depois de ver o 201:
 depois do 201 a decisão já está tomada por você.
+
+## Reprovar o próprio deploy por causa de um serviço que não é seu
+
+O deploy do `operacoes` verifica, pela rede, que a credencial do broker autentica — §10.2, e
+está certo. O erro foi o desfecho: eu tratei `401` (broker de pé, credencial recusada) e
+"não respondeu" (broker fora do ar) do mesmo jeito, `exit 1`. Com `script_stop: true`, isso
+reprova o job `deploy` inteiro.
+
+Só que o `plataforma-rabbitmq` **é serviço do `hub-precos`**, não deste repo. Um broker fora
+do ar passaria a reprovar o nosso deploy — e o job `guarda-deploy`, que existe justamente para
+tornar impossível confundir "não deployado" com "deployado" (§10.17), afirmaria **"este commit
+NÃO chegou a produção"** com o container no ar e `healthy`. Diagnóstico falso apontando para o
+serviço errado — a mesma família de diagnóstico falso da §10.15, mas num eixo diferente: lá o
+erro era de **causa** (falta de espera lida como credencial divergente, no mesmo serviço); aqui
+é de **atribuição** (falha de um serviço vizinho lida como falha do nosso deploy).
+
+O laço já distinguia os dois códigos para decidir se repetia (`000` repete, `401` falha
+rápido) — a distinção existia e eu não a levei até o veredito.
+
+**Regra:** falhe o deploy pelo que é **seu e acionável** (`401` é o secret deste repo
+divergindo do que o broker aceitou), e apenas avise no que é de terceiro (broker inacessível
+→ `::warning::` e siga; a outbox segura os eventos, nada se perde, e os alertas de runtime já
+cobrem). Antes de pôr um `exit 1` num passo de deploy, pergunte: "se isto falhar, a culpa é
+deste repositório?". Se não for, o `exit 1` está mentindo sobre o que aconteceu.
+
+## O executor propõe a correção no lugar errado, e ela passa por ser mecânica
+
+Um executor resolveu um estouro do diagnóstico `ManyServiceProvidersCreatedWarning` do EF
+Core — que quebrou **três testes pré-existentes e não relacionados** — suprimindo o aviso, e
+suprimiu inclusive no `AddInfrastructure`, isto é, **no caminho de produção**. Justificou como
+"mecânica, sem impacto em produção, só há um `AddDbContext` por processo real".
+
+A justificativa refuta a correção: se em produção há sempre um provider, o aviso nunca
+dispararia lá — a supressão não compra nada, e a única coisa que ela faz é apagar o alarme do
+dia em que alguém introduzir um segundo `AddDbContext` ou opções por request. Numa VPS de um
+núcleo e ~1 GB, essa regressão futura é OOM. E o desvio ficaria no arquivo que o próximo
+serviço copia do molde.
+
+A causa real era o harness: os testes novos subiam **um container Postgres por método** (8),
+e o contador de service providers do EF é **global ao processo** — por isso as vítimas eram
+outros arquivos, e mudavam a cada execução. Uma collection fixture com um container
+compartilhado derrubou o total, e os três testes quebrados **voltaram a passar sem serem
+editados** — que é a prova de que a correção atacou a causa e não o sintoma. De quebra, 8
+containers viraram 1.
+
+**Regra:** quando a correção proposta fica num arquivo mais central que o problema, isso é
+sinal, não conveniência — pergunte onde o problema **nasce**. E teste que quebra outro teste
+não relacionado quase nunca é defeito do outro teste: é estado global do processo (contador,
+cache estático, variável de ambiente, porta). O `CLAUDE.md` manda desvio do molde passar pelo
+`advisor`; foi ele quem desmontou este, e o executor tinha registrado no relatório que decidiu
+sozinho — ler o relatório inteiro é o que fez a diferença.
+
+## Duas revisões que não se sobrepõem: a segunda achou o que a primeira não procurava
+
+No F4, `guardiao-padroes` e `revisor` acharam coisas **disjuntas**, e nenhuma das duas teria
+achado a da outra:
+
+- o guardião achou um `infra/grafana/README.md` descrevendo um repo que não existe mais
+  ("o F1 é esqueleto… só os 10 painéis de infraestrutura", "duas regras") enquanto o diff ao
+  lado entregava 14 painéis e 4 regras. Dois executores atualizaram o JSON e o YAML e deixaram
+  o texto ao lado. É a §10.20 na sua forma mais barata de cometer;
+- o revisor achou o defeito grave — a amplificação da mensagem-veneno (`PADROES.md` §10.26) —
+  mutando o código para provar que os testes não eram vácuos, e escrevendo um teste novo
+  contra broker real para produzir a perda.
+
+O guardião nunca acharia o segundo (o código era **fiel ao molde** — o molde é que está
+errado), e o revisor não estava olhando para README. Isto é a razão de rodar as duas, e de
+rodar **em série**: o revisor muta a implementação de propósito, e um guardião lendo esse
+estado reporta como defeito real o que já não existe.
+
+**Regra que se confirmou de novo:** correção de achado grave é código novo e pede as duas
+revisões outra vez sobre o delta. E peça ao guardião que audite também **os textos** —
+README de infra, comentário de workflow, descrição de alerta. Nesta fase, um dos dois defeitos
+que ele achou estava num `.md`, não em `.cs`.

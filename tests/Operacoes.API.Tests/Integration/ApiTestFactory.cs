@@ -16,6 +16,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>, IAsyncLifet
     public const string ValidApiKey = "integration-test-api-key-0123456789";
     private const string ConnectionStringEnvVar = "ConnectionStrings__DefaultConnection";
     private const string ApiKeyEnvVar = "ApiKey__Key";
+    private const string RelayAgendamentoAtivoEnvVar = "Outbox__Relay__AgendamentoAtivo";
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:16-alpine")
         .Build();
     public FakeHubCatalogoClient HubCatalogoClient { get; } = new();
@@ -26,6 +27,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>, IAsyncLifet
             await _postgres.StartAsync();
             Environment.SetEnvironmentVariable(ConnectionStringEnvVar, _postgres.GetConnectionString());
             Environment.SetEnvironmentVariable(ApiKeyEnvVar, ValidApiKey);
+            Environment.SetEnvironmentVariable(RelayAgendamentoAtivoEnvVar, "false");
             using var scope = Services.CreateScope();
 
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -62,6 +64,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>, IAsyncLifet
     {
         Environment.SetEnvironmentVariable(ConnectionStringEnvVar, null);
         Environment.SetEnvironmentVariable(ApiKeyEnvVar, null);
+        Environment.SetEnvironmentVariable(RelayAgendamentoAtivoEnvVar, null);
     }
 
     public HttpClient CreateAuthenticatedClient()

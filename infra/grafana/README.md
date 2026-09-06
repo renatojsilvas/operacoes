@@ -49,25 +49,25 @@ pontas evita um `cp` com rename e a chance de esquecer o sufixo. O que importa �
 `rules-operacoes.yaml` e nunca `rules.yaml` no repo vizinho — está garantido porque o
 nome já nasce certo.
 
-## O que o dashboard mostra hoje, e por que não tem mais
+## O que o dashboard mostra hoje
 
-O F1 do Operações é um esqueleto: **não há endpoint de negócio, ingestão, outbox nem
-relay** (ver `ROADMAP.md`). Por isso o `operacoes.json` só tem os 10 painéis de
-infraestrutura que têm métrica real por trás (confirmados raspando `/metrics` da
-aplicação rodando, não copiados de memória do dashboard do Hub):
+Pós-F4, o Operações tem `POST /operacoes` (F3), outbox e relay para o RabbitMQ (F4). O
+`operacoes.json` tem 14 painéis: os 10 de infraestrutura de sempre —
 
 `Target`, `Uptime do processo`, `Health checks`, `Requisições em andamento`,
 `Requisições por status`, `Latência (p95 / p50)`, `Pool de conexões Postgres`,
-`Memória`, `CPU`, `Coletas de lixo por geração`.
+`Memória`, `CPU`, `Coletas de lixo por geração`
 
-Os ~9 painéis de negócio do `hub-precos.json` (frescor de ingestão, backlog da outbox,
-ciclos de relay etc.) **não têm equivalente aqui** — as métricas `hub_ingestao_*`,
-`hub_outbox_*` e `hub_relay_*` não existem no Operações porque o código que as emitiria
-ainda não existe. Copiá-los criaria painéis permanentemente vazios, o mesmo modo de
-falha silenciosa que o `apply-cloud.sh` já documenta para o dashboard `load-test-k6`
-(ver comentário lá). Conforme fases futuras (F2+) adicionarem ingestão/outbox/relay ao
-Operações, os painéis correspondentes entram aqui no mesmo diff que adicionar a
-métrica — não antes.
+— mais os 4 de negócio que o F4 trouxe, sobre as métricas `operacoes_outbox_*` e
+`operacoes_relay_*` emitidas por `RelayOutboxJob`/`BusinessMetrics`:
+
+`Backlog da outbox`, `Idade do backlog mais antigo`, `Ciclos de relay por desfecho`,
+`Eventos publicados no broker`.
+
+Cada painel novo só entrou no mesmo diff que a métrica que ele lê — copiar um painel
+sem métrica real por trás cria um painel permanentemente vazio, o mesmo modo de falha
+silenciosa que o `apply-cloud.sh` já documenta para o dashboard `load-test-k6` (ver
+comentário lá).
 
 Dois painéis carregam contexto que não é óbvio pelo número (mesma nota do Hub, com a
 diferença real deste serviço):
@@ -87,18 +87,34 @@ diferença real deste serviço):
 
 ## Regras de alerta (`cloud/rules-operacoes.yaml`)
 
-Duas regras, grupo `operacoes-alertas`, pasta `Operacoes` — deliberadamente o mínimo, não
-um porte 1:1 do Hub. Sem tráfego de negócio (nenhum endpoint além de
-`/health`/`/metrics`/`/swagger`), uma regra de taxa de erro 5xx ou de latência ficaria
-sem dado o tempo todo — não é alerta, é ruído silencioso à espera de significado:
+Quatro regras, grupo `operacoes-alertas`, pasta `Operacoes`:
 
-- **Operações — App down**: `up{job="operacoes"} == 0`, `for: 2m`,
-  `noDataState: Alerting`. Mesma forma de `td-app-down` (repo `tesouro-direto-api`,
-  `rules.yaml`) — `up == 0`, não `absent()`, porque o alvo já está declarado em
-  `infra/alloy/config.alloy`; o que este alerta vigia é o alvo parar de responder.
-  `noDataState: Alerting` porque a série pode sumir por completo se o alvo for removido
-  do scrape ou o container renomeado, e isso também precisa soar.
-- **Operações — DB/readiness down**:
+- **Operações — App down** (`operacoes-app-down`): `up{job="operacoes"} == 0`,
+  `for: 2m`, `noDataState: Alerting`. Mesma forma de `td-app-down` (repo
+  `tesouro-direto-api`, `rules.yaml`) — `up == 0`, não `absent()`, porque o alvo já
+  está declarado em `infra/alloy/config.alloy`; o que este alerta vigia é o alvo parar
+  de responder. `noDataState: Alerting` porque a série pode sumir por completo se o
+  alvo for removido do scrape ou o container renomeado, e isso também precisa soar.
+- **Operações — Backlog da outbox envelhecido** (`operacoes-outbox-backlog-velho`):
+  `max(operacoes_outbox_pendente_mais_antiga_segundos{job="operacoes"}) > 900`,
+  `for: 5m`, `noDataState: Alerting`. Mesma forma de `hub-outbox-backlog-velho` (repo
+  `hub-precos`) — idade, não contagem, porque backlog transitório é normal (o relay
+  drena a cada 5s); backlog VELHO (15 minutos de folga sobre essa cadência) é o
+  sintoma real. `noDataState: Alerting` porque a métrica só é gravada quando um ciclo
+  do `RelayOutboxJob` termina com sucesso; ausência prolongada significa que o relay
+  nunca conseguiu drenar desde o boot.
+- **Operações — Relay outbox falhando persistentemente**
+  (`operacoes-relay-falha-persistente`):
+  `increase(operacoes_relay_ciclos_total{job="operacoes",outcome="failure"}[5m]) > 30`,
+  `for: 5m`, `noDataState: OK`. Existe porque o alerta de idade do backlog não cobre o
+  caso em que o próprio ciclo falha (o gauge de idade não é atualizado nesse caminho e
+  CONGELA). `noDataState: OK` porque o desfecho do ciclo é registrado
+  incondicionalmente a cada execução; ausência de dado aqui é "app não está rodando",
+  já coberto por `operacoes-app-down`. A descrição da regra distingue
+  `Outbox.PublicacaoRejeitada` (broker vivo, fila destino rejeitou) de
+  `Outbox.BrokerIndisponivel` (broker fora do ar/inalcançável) — só o segundo caso
+  aponta para o `hub-precos`.
+- **Operações — DB/readiness down** (`operacoes-db-readiness-down`):
   `aspnetcore_healthcheck_status{job="operacoes",name="AppDbContext"} == 0`, `for: 1m`,
   `noDataState: Alerting`. Mesma forma de `td-db-readiness-down`. A métrica só é
   publicada quando algo chama `/health*` — em produção quem garante isso 24/7 é o
@@ -113,7 +129,7 @@ point para o MESMO bot e MESMO chat id — `telegram-operacoes` — diferindo s�
 O `policies.yaml` de lá ganhou uma rota FILHA casando `service = operacoes` →
 `telegram-operacoes`; a raiz e a rota do Hub continuam byte a byte iguais a antes.
 
-**O label `service: operacoes` das duas regras acima virou contrato** — é ele que a
+**O label `service: operacoes` das quatro regras acima virou contrato** — é ele que a
 rota filha casa no repo de referência. Quem remover ou renomear esse label aqui quebra
 o roteamento do lado de lá, sem erro visível na hora — o YAML continua válido, o
 `apply-cloud.sh` continua aplicando com sucesso, só o Telegram passa a rotular errado.
