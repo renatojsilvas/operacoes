@@ -25,12 +25,12 @@ public sealed class OperacoesEndpointsTests : IDisposable
             Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
             ?? throw new InvalidOperationException("ConnectionStrings__DefaultConnection não foi definida pela ApiTestFactory.");
 
-        _factory.HubCatalogoClient.Resposta = Result<bool>.Success(true);
+        _factory.HubCatalogoClient.Reset();
     }
 
     public void Dispose()
     {
-        _factory.HubCatalogoClient.Resposta = Result<bool>.Success(true);
+        _factory.HubCatalogoClient.Reset();
     }
 
     private static object CorpoValido(
@@ -457,6 +457,39 @@ public sealed class OperacoesEndpointsTests : IDisposable
 
         using var request = BuildRequest(
             CorpoValido($"cliente-{NovoId()}", "td:instrumento-desconhecido"), $"idem-{NovoId()}");
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("Operacao.InstrumentoInexistente", await GetCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Post_QuandoHubDevolveCatalogoNaoVazioSemMatchExato_Retorna422ComCode()
+    {
+        _factory.HubCatalogoClient.Catalogo =
+        [
+            new InstrumentoCatalogo("td:x-2030", "titulo-publico", "Tesouro X 2030", Vencido: false),
+        ];
+
+        using var request = BuildRequest(
+            CorpoValido($"cliente-{NovoId()}", "td:x"), $"idem-{NovoId()}");
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("Operacao.InstrumentoInexistente", await GetCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Post_QuandoHubDevolveItemComIdNulo_NaoDevolve500()
+    {
+        const string instrumentoId = "instrumento-com-id-nulo-no-hub";
+        _factory.HubCatalogoClient.Catalogo =
+        [
+            new InstrumentoCatalogo(null!, "titulo-publico", instrumentoId, Vencido: false),
+        ];
+
+        using var request = BuildRequest(
+            CorpoValido($"cliente-{NovoId()}", instrumentoId), $"idem-{NovoId()}");
         var response = await _client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);

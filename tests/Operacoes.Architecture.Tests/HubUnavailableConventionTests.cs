@@ -66,6 +66,34 @@ public sealed partial class HubUnavailableConventionTests
             "falar com o Hub. Ocorrências fora do esperado:\n" + string.Join('\n', foraDoClient));
     }
 
+    [Fact]
+    public void SomenteHubCatalogoClient_DevolveCatalogoErrorsHubColetaIncompleta()
+    {
+        var arquivos = ListarArquivosCs(Path.Combine(RepoRoot, "src"));
+
+        Assert.True(
+            arquivos.Count > 0,
+            $"esta asserção só é uma convenção real se houver arquivos .cs em src/ para inspecionar; " +
+            $"encontrados: {arquivos.Count} em '{RepoRoot}'.");
+
+        var ocorrencias = EncontrarOcorrencias(arquivos, PadraoHubColetaIncompleta());
+
+        Assert.True(
+            ocorrencias.Count > 0,
+            "esperava encontrar CatalogoErrors.HubColetaIncompleta usado em algum lugar (HubCatalogoClient.cs); " +
+            "se este teste falhar aqui, o scanner parou de enxergar o token, e a checagem de exclusividade " +
+            "abaixo virou vacuidade.");
+
+        var foraDoClient = ocorrencias.Where(o => !o.Contains("HubCatalogoClient.cs")).ToList();
+
+        Assert.True(
+            foraDoClient.Count == 0,
+            "CatalogoErrors.HubColetaIncompleta só deveria ser devolvido em " +
+            "Operacoes.Infrastructure/Catalogo/HubCatalogoClient.cs, pelo mesmo motivo do HubIndisponivel — " +
+            "qualquer outro produtor rompe a garantia de que 503 só nasce de uma falha real ao falar com o " +
+            "Hub. Ocorrências fora do esperado:\n" + string.Join('\n', foraDoClient));
+    }
+
     private static List<string> EncontrarOcorrencias(IReadOnlyList<string> arquivos, Regex padrao)
     {
         var ocorrencias = new List<string>();
@@ -127,4 +155,7 @@ public sealed partial class HubUnavailableConventionTests
 
     [GeneratedRegex(@"CatalogoErrors\.HubIndisponivel")]
     private static partial Regex PadraoHubIndisponivel();
+
+    [GeneratedRegex(@"CatalogoErrors\.HubColetaIncompleta")]
+    private static partial Regex PadraoHubColetaIncompleta();
 }

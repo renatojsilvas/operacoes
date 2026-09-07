@@ -53,14 +53,14 @@ public sealed class RegistrarOperacaoCommandHandler(
 
         var operacao = operacaoResult.Value;
 
-        var instrumentoExisteResult = await hubCatalogoClient.InstrumentoExisteAsync(operacao.InstrumentoId, ct);
-        if (instrumentoExisteResult.IsFailure)
+        var catalogoResult = await hubCatalogoClient.BuscarPorTermoAsync(operacao.InstrumentoId, ct);
+        if (catalogoResult.IsFailure)
         {
 
-            return instrumentoExisteResult.Error;
+            return catalogoResult.Error;
         }
 
-        if (!instrumentoExisteResult.Value)
+        if (!CatalogoMatch.ContemExato(catalogoResult.Value, operacao.InstrumentoId))
         {
             return OperacaoErrors.InstrumentoInexistente;
         }

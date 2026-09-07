@@ -99,6 +99,69 @@ public sealed class RegistrarOperacaoCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_QuandoHubDevolveCatalogoNaoVazioComApenasPrefixoSemMatchExato_Devolve422SemGravarNada()
+    {
+        var hub = new FakeHubCatalogoClient(Result<bool>.Success(true))
+        {
+            Catalogo = [new InstrumentoCatalogo("td:x-2030", "titulo-publico", "Tesouro X 2030", Vencido: false)],
+        };
+        var handler = new RegistrarOperacaoCommandHandler(
+            hub, _readRepository, _writeRepository, _outboxRepository, _unitOfWork, _timeProvider,
+            NullLogger<RegistrarOperacaoCommandHandler>.Instance);
+
+        var comando = ComandoValido(instrumentoId: "td:x");
+
+        var resultado = await handler.Handle(comando, CancellationToken.None);
+
+        Assert.True(resultado.IsFailure);
+        Assert.Equal(OperacaoErrors.InstrumentoInexistente, resultado.Error);
+        Assert.Empty(_writeRepository.Adicionadas);
+        Assert.Equal(0, _unitOfWork.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task Handle_QuandoHubDevolveCatalogoNaoVazioComApenasDivergenciaDeCaixa_Devolve422SemGravarNada()
+    {
+        var hub = new FakeHubCatalogoClient(Result<bool>.Success(true))
+        {
+            Catalogo = [new InstrumentoCatalogo("TD:X", "titulo-publico", "Tesouro X", Vencido: false)],
+        };
+        var handler = new RegistrarOperacaoCommandHandler(
+            hub, _readRepository, _writeRepository, _outboxRepository, _unitOfWork, _timeProvider,
+            NullLogger<RegistrarOperacaoCommandHandler>.Instance);
+
+        var comando = ComandoValido(instrumentoId: "td:x");
+
+        var resultado = await handler.Handle(comando, CancellationToken.None);
+
+        Assert.True(resultado.IsFailure);
+        Assert.Equal(OperacaoErrors.InstrumentoInexistente, resultado.Error);
+        Assert.Empty(_writeRepository.Adicionadas);
+        Assert.Equal(0, _unitOfWork.SaveChangesCalls);
+    }
+
+    [Fact]
+    public async Task Handle_QuandoHubDevolveCatalogoComNomeExibicaoIgualAoInstrumentoIdMasIdDiferente_Devolve422SemGravarNada()
+    {
+        var hub = new FakeHubCatalogoClient(Result<bool>.Success(true))
+        {
+            Catalogo = [new InstrumentoCatalogo("td:outro-instrumento", "titulo-publico", "td:tesouro-selic-2029", Vencido: false)],
+        };
+        var handler = new RegistrarOperacaoCommandHandler(
+            hub, _readRepository, _writeRepository, _outboxRepository, _unitOfWork, _timeProvider,
+            NullLogger<RegistrarOperacaoCommandHandler>.Instance);
+
+        var comando = ComandoValido(instrumentoId: "td:tesouro-selic-2029");
+
+        var resultado = await handler.Handle(comando, CancellationToken.None);
+
+        Assert.True(resultado.IsFailure);
+        Assert.Equal(OperacaoErrors.InstrumentoInexistente, resultado.Error);
+        Assert.Empty(_writeRepository.Adicionadas);
+        Assert.Equal(0, _unitOfWork.SaveChangesCalls);
+    }
+
+    [Fact]
     public async Task Handle_ComEstornoDeReferenciaInvalida_DevolveErroSemGravarNada()
     {
         _readRepository.ReferenciaDeEstornoValida = Result<bool>.Success(false);
