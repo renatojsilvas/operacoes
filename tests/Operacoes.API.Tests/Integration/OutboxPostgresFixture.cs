@@ -29,7 +29,7 @@ public sealed class OutboxPostgresFixture : IAsyncLifetime
         await using var connection = DataSource.CreateConnection();
         await connection.OpenAsync();
         await using var comando = connection.CreateCommand();
-        comando.CommandText = "TRUNCATE TABLE outbox RESTART IDENTITY CASCADE;";
+        comando.CommandText = "TRUNCATE TABLE operacoes, outbox RESTART IDENTITY CASCADE;";
         await comando.ExecuteNonQueryAsync();
     }
 

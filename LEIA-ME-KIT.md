@@ -862,3 +862,39 @@ nenhuma no comportamento dela.
 **Corolário sobre onde procurar:** isto não apareceu em revisão de código nem em teste — apareceu
 lendo a saída de um deploy que tinha passado. Vale a mesma lição da §10.11: coisa estranha no
 log de um deploy verde não é ruído.
+
+## Especificar só a metade permissiva de um invariante de equivalência
+
+No F5 o invariante central era "mesma origem para lista e validação": todo instrumento que o
+`GET /operacoes/instrumentos` oferece tem que ser aceito pelo `POST /operacoes`. Eu escrevi o
+teste que prova isso, com catálogo cheio de armadilhas (id que difere só por caixa, id que é
+prefixo de outro, vencido, `nomeExibicao` que casa mas o id não), guarda contra coleção vazia, e
+prova por mutação. Ele ficou verde e as mutações que eu pedi ficaram vermelhas. Parecia fechado.
+
+O revisor adversarial então trocou, na validação do `POST`, o match exato por
+`if (catalogoResult.Value.Count == 0)` — isto é, degradou a regra para "o Hub devolveu **alguma
+coisa**, então aceito" — e **os 484 testes continuaram verdes**.
+
+O motivo é que meu teste prova uma direção só. "Para todo item que a lista devolveu, o POST
+aceita" continua verdadeiro quando a validação afrouxa: uma validação que aceita **tudo** satisfaz
+essa afirmação perfeitamente. A metade que falta é a estrita — "um id que a lista NÃO ofereceu, o
+POST recusa" — e é exatamente ela que impede a regressão. Como a busca do Hub é textual, buscar
+`td:x` traz `td:x-2030`; sem a metade estrita, um `instrumentoId` inexistente que seja prefixo de
+algo existente entraria numa tabela append-only.
+
+Contribuiu para o buraco um detalhe de fixture que eu não olhei: os dois `FakeHubCatalogoClient`
+traduziam "instrumento não existe" como **lista vazia**, e "existe" como uma lista de um item cujo
+`Id` era o próprio termo buscado. O cenário que importa — lista **não vazia** sem match exato — era
+inexprimível nos fakes, então nenhum teste podia cobri-lo, por construção. O fake não estava
+errado; ele só modelava um mundo em que o defeito não cabe.
+
+**Regra:** invariante que afirma equivalência entre dois caminhos precisa de teste nas **duas
+direções**, e a direção que pega regressão é quase sempre a estrita (o que um caminho recusa),
+não a permissiva (o que o outro aceita). Ao despachar o teste, escreva as duas explicitamente — o
+executor entrega o que está no prompt, e "prove o invariante" será lido como a direção que o
+enunciado sugerir.
+
+**Corolário sobre fakes:** antes de confiar numa suíte, pergunte quais estados o fake é **capaz**
+de representar. Fake construído a partir de um `bool` só sabe dizer sim e não; se o defeito mora
+no "sim parcial", nenhuma quantidade de testes sobre aquele fake vai encontrá-lo. Cobertura é
+limitada pelo vocabulário do dublê, não pelo número de casos.

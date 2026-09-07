@@ -435,6 +435,45 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   <br>**Pronto:** autocomplete respondendo, e o mesmo instrumento que ele oferece sendo
   aceito pelo `POST /operacoes` — mesma origem para lista e validação, por construção.
 
+  **Decisões de contrato do F5, registradas aqui porque a §2 do `PADROES.md` exige que
+  fiquem em algum lugar durável:**
+
+  - **Sem paginação; `limit` no lugar de `page`/`pageSize`, com clamp em 50 e default 20.**
+    A §2 autoriza ("coleções limitadas por construção podem dispensar paginação — decisão
+    registrada"), e aqui a paginação não é só desnecessária, é incompatível: a priorização
+    por histórico do cliente e a regra do match exato em primeiro lugar precisam ordenar o
+    conjunto filtrado **inteiro antes** do corte. Paginando pelo Hub, o instrumento que o
+    cliente já negociou e caiu na página 3 nunca subiria — a conveniência que justifica o
+    endpoint deixaria de existir. `limit`, e não `pageSize`, porque `pageSize` sem `page`
+    mente sobre haver páginas. `X-Total-Count` é pós-filtro e pré-corte, e não há `Link`.
+  - **Sem filtro por `classe`,** que o `GET /instruments` do Hub oferece: o autocomplete
+    busca por texto, e um filtro de classe na borda de Operações seria uma segunda
+    superfície de um contrato que é do Hub. Ausência decidida.
+  - **`clienteId` é opcional, e sem ele `jaNegociado` é OMITIDO do JSON — não `false`.**
+    `false` afirmaria "perguntei e este cliente nunca negociou"; a ausência afirma "não
+    perguntei". O campo nunca se chama `jaPossui`/`emCarteira`: Operações não tem posição
+    (ADR-10), e o que este serviço sabe é que houve operação registrada.
+  - **`query` vazio ou só espaços é 400, não "catálogo inteiro"** (§10.24: entrada
+    malformada não se normaliza em silêncio). Se a UI um dia quiser abrir a lista ao focar
+    o campo, isso é comportamento distinto, pedido explicitamente — não herdado por
+    acidente de um `query` vazio tolerado.
+  - **`ativoAte` fora do payload:** `vencido` vem calculado pelo Hub e é a verdade; repassar
+    a data só para a UI recalcular reabriria a segunda fonte de verdade. Volta como campo
+    aditivo se a UI precisar exibir "vencido em dd/mm/aaaa".
+  - **Sem last-known-good no cache e sem GET condicional contra o Hub** — as duas ausências
+    são decididas e estão registradas em `PADROES.md` §10.29 e §10.30.
+  - **Premissa que sustenta a coleta paginada, e que pode expirar:** o `HubCatalogoClient`
+    lê o `X-Total-Count` na primeira página e, ao fim do laço, trata divergência entre o
+    total anunciado e o coletado como **falha** — é o que impede um conjunto parcial de ser
+    apresentado como completo e virar um 422 mentiroso no `POST` (ADR-11). Isso embute uma
+    corrida: se o catálogo do Hub mudar **entre** a primeira página e a última, os números
+    divergem sem que nada esteja errado, e a busca devolve 503. Hoje isso é inatingível na
+    prática, porque o caminho multi-página só roda com mais de `pageSize=500` matches para
+    um termo e o catálogo em produção tem ~150 instrumentos — a coleta cabe sempre numa
+    página. **Se o catálogo crescer para além disso, ou se entrarem classes de universo
+    aberto, esta é a primeira decisão a revisitar:** o sintoma será 503 intermitente e sem
+    causa aparente no autocomplete, e a causa não estará no Hub nem na rede.
+
 Com o F5, fecha a **metade "Operações" do item 3** da ordem de implementação (§9). A
 outra metade é a Custódia, em repo próprio: o critério de pronto do item ("aplicação
 registrada via Operações aparecendo no livro por evento") só é verificável com as duas.

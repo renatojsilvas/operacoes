@@ -2,13 +2,16 @@ using Operacoes.Application.Catalogo;
 using Operacoes.Application.Common.Interfaces;
 using Operacoes.Application.Operacoes;
 using Operacoes.Application.Outbox;
+using Operacoes.Infrastructure.Caching;
 using Operacoes.Infrastructure.Catalogo;
+using Operacoes.Infrastructure.Http;
 using Operacoes.Infrastructure.Messaging;
 using Operacoes.Infrastructure.Observability;
 using Operacoes.Infrastructure.Outbox;
 using Operacoes.Infrastructure.Persistence;
 using Operacoes.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -22,6 +25,8 @@ namespace Operacoes.Infrastructure;
 public static class DependencyInjection
 {
     private const int NpgsqlMaxPoolSize = 5;
+    private const long MemoryCacheSizeLimit = 1_000;
+
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         var connectionString = new NpgsqlConnectionStringBuilder(
@@ -44,7 +49,17 @@ public static class DependencyInjection
         services.AddSingleton<RabbitMqConnectionProvider>();
         services.AddScoped<IEventPublisher, RabbitMqEventPublisher>();
         services.AddSingleton<RelayOutboxFalhaLogThrottle>();
-        services.AddHttpClient<IHubCatalogoClient, HubCatalogoClient>((sp, client) =>
+
+        services.AddMemoryCache(options => options.SizeLimit = MemoryCacheSizeLimit);
+
+        services.AddScoped<ContentVersionProvider>();
+        services.AddScoped<IContentVersionProvider>(sp =>
+            new CachedContentVersionProvider(
+                sp.GetRequiredService<ContentVersionProvider>(),
+                sp.GetRequiredService<IMemoryCache>(),
+                sp.GetRequiredService<IConfiguration>()));
+
+        services.AddHttpClient<HubCatalogoClient>((sp, client) =>
         {
             var config = sp.GetRequiredService<IConfiguration>();
             var baseUrl = config["Hub:BaseUrl"];
@@ -60,6 +75,12 @@ public static class DependencyInjection
             }
         })
         .AddHubResilienceHandler(configuration);
+
+        services.AddScoped<IHubCatalogoClient>(sp =>
+            new CachedHubCatalogoClient(
+                sp.GetRequiredService<HubCatalogoClient>(),
+                sp.GetRequiredService<IMemoryCache>(),
+                sp.GetRequiredService<IConfiguration>()));
 
         var relayAgendamentoAtivo = configuration.GetValue<bool?>("Outbox:Relay:AgendamentoAtivo") ?? true;
         var relayIntervaloSegundos = configuration.GetValue<int?>("Outbox:Relay:IntervaloSegundos") ?? 5;

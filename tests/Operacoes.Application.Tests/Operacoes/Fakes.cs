@@ -8,14 +8,43 @@ using Operacoes.Domain.Outbox;
 
 namespace Operacoes.Application.Tests.Operacoes;
 
-internal sealed class FakeHubCatalogoClient(Result<bool> resultado) : IHubCatalogoClient
+internal sealed class FakeHubCatalogoClient : IHubCatalogoClient
 {
+    private readonly Result<bool> _resultado;
+
+    public FakeHubCatalogoClient()
+    {
+        _resultado = Result<bool>.Success(true);
+    }
+
+    public FakeHubCatalogoClient(Result<bool> resultado)
+    {
+        _resultado = resultado;
+    }
+
+    public IReadOnlyList<InstrumentoCatalogo>? Catalogo { get; set; }
+
     public List<string> Chamadas { get; } = [];
 
-    public Task<Result<bool>> InstrumentoExisteAsync(string instrumentoId, CancellationToken ct)
+    public Task<Result<IReadOnlyList<InstrumentoCatalogo>>> BuscarPorTermoAsync(string termo, CancellationToken ct)
     {
-        Chamadas.Add(instrumentoId);
-        return Task.FromResult(resultado);
+        Chamadas.Add(termo);
+
+        if (_resultado.IsFailure)
+        {
+            return Task.FromResult(Result<IReadOnlyList<InstrumentoCatalogo>>.Failure(_resultado.Error));
+        }
+
+        if (Catalogo is not null)
+        {
+            return Task.FromResult(Result<IReadOnlyList<InstrumentoCatalogo>>.Success(Catalogo));
+        }
+
+        IReadOnlyList<InstrumentoCatalogo> itens = _resultado.Value
+            ? [new InstrumentoCatalogo(termo, "titulo-publico", termo, Vencido: false)]
+            : [];
+
+        return Task.FromResult(Result<IReadOnlyList<InstrumentoCatalogo>>.Success(itens));
     }
 }
 
@@ -40,6 +69,17 @@ internal sealed class FakeOperacaoReadRepository : IOperacaoReadRepository
     {
         ChamadasDeConsulta.Add(id);
         return Task.FromResult(ConsultaPorId);
+    }
+
+    public Result<IReadOnlyList<string>> InstrumentosNegociados { get; set; } =
+        Result<IReadOnlyList<string>>.Success(Array.Empty<string>());
+
+    public List<string> ChamadasDeNegociados { get; } = [];
+
+    public Task<Result<IReadOnlyList<string>>> ObterInstrumentosNegociadosAsync(string clienteId, CancellationToken ct)
+    {
+        ChamadasDeNegociados.Add(clienteId);
+        return Task.FromResult(InstrumentosNegociados);
     }
 }
 

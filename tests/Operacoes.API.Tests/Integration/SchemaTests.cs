@@ -260,6 +260,36 @@ public sealed class SchemaTests
     }
 
     [Fact]
+    public async Task Operacoes_IndiceClienteInstrumento_CobreClienteIdEInstrumentoIdNaOrdemCerta()
+    {
+        using var connection = await OpenConnectionAsync();
+
+        var indexDef = await connection.ExecuteScalarAsync<string?>(
+            """
+            SELECT indexdef FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND tablename = 'operacoes'
+              AND indexname = 'ix_operacoes_cliente_instrumento'
+            """);
+        Assert.True(
+            indexDef is not null,
+            "Índice 'ix_operacoes_cliente_instrumento' não existe em operacoes. " +
+            "É o índice de cobertura de ObterInstrumentosNegociadosAsync (F5) e precisa de nome explícito na convenção do repo.");
+        var colunas = await connection.QueryAsync<string>(
+            """
+            SELECT a.attname
+            FROM pg_index i
+            JOIN pg_class c ON c.oid = i.indrelid
+            JOIN pg_class ic ON ic.oid = i.indexrelid
+            JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY(i.indkey)
+            WHERE c.relname = 'operacoes'
+              AND ic.relname = 'ix_operacoes_cliente_instrumento'
+            ORDER BY array_position(i.indkey, a.attnum)
+            """);
+        Assert.Equal(new[] { "cliente_id", "instrumento_id" }, colunas);
+    }
+
+    [Fact]
     public async Task Operacoes_IndiceEstornaClienteInstrumento_CobreAsTresColunasNaOrdemCerta()
     {
         using var connection = await OpenConnectionAsync();

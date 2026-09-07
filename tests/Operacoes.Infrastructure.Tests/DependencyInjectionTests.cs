@@ -1,11 +1,17 @@
 using System.Reflection;
+using Operacoes.Application.Catalogo;
 using Operacoes.Application.Common.Interfaces;
+using Operacoes.Infrastructure.Caching;
+using Operacoes.Infrastructure.Catalogo;
+using Operacoes.Infrastructure.Http;
 using Operacoes.Infrastructure.Observability;
 using Operacoes.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Http;
 using Npgsql;
 
 namespace Operacoes.Infrastructure.Tests;
@@ -17,12 +23,14 @@ public sealed class DependencyInjectionTests
         int port = 5432,
         string database = "operacoes_teste",
         string username = "operacoes_app",
-        string password = "segredo") =>
+        string password = "segredo",
+        string? hubBaseUrl = null) =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] =
-                    $"Host={host};Port={port};Database={database};Username={username};Password={password}"
+                    $"Host={host};Port={port};Database={database};Username={username};Password={password}",
+                ["Hub:BaseUrl"] = hubBaseUrl,
             })
             .Build();
 
@@ -176,5 +184,79 @@ public sealed class DependencyInjectionTests
 
         Assert.Same(TimeProvider.System, first);
         Assert.Same(first, second);
+    }
+
+    [Fact]
+    public void AddInfrastructure_RegistraIMemoryCacheComSizeLimitConfigurado()
+    {
+        var services = new ServiceCollection();
+        services.AddInfrastructure(BuildConfiguration());
+
+        using var provider = services.BuildServiceProvider();
+        var cache = provider.GetRequiredService<IMemoryCache>();
+
+        Assert.NotNull(cache);
+
+        var excecao = Record.Exception(() => cache.Set("sonda-sem-size", "valor"));
+        Assert.IsType<InvalidOperationException>(excecao);
+    }
+
+    [Fact]
+    public void AddInfrastructure_RegistraIContentVersionProviderComoODecoratorCacheado()
+    {
+        var configuration = BuildConfiguration();
+        var services = new ServiceCollection();
+        services.AddSingleton(configuration);
+        services.AddInfrastructure(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var versionProvider = scope.ServiceProvider.GetRequiredService<IContentVersionProvider>();
+
+        Assert.IsType<CachedContentVersionProvider>(versionProvider);
+    }
+
+    [Fact]
+    public void AddInfrastructure_RegistraIHubCatalogoClientComoODecoratorCacheado()
+    {
+        var configuration = BuildConfiguration(hubBaseUrl: "http://hub.interno/");
+        var services = new ServiceCollection();
+        services.AddSingleton(configuration);
+        services.AddInfrastructure(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var hubCatalogoClient = scope.ServiceProvider.GetRequiredService<IHubCatalogoClient>();
+
+        Assert.IsType<CachedHubCatalogoClient>(hubCatalogoClient);
+    }
+
+    [Fact]
+    public void AddInfrastructure_OConcretoDoHubCatalogoClient_MantemBaseAddressEHandlerDeResiliencia()
+    {
+        var configuration = BuildConfiguration(hubBaseUrl: "http://hub.interno/");
+        var services = new ServiceCollection();
+        services.AddSingleton(configuration);
+        services.AddInfrastructure(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        var httpClientFactory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+        var httpMessageHandlerFactory = scope.ServiceProvider.GetRequiredService<IHttpMessageHandlerFactory>();
+
+        var httpClient = httpClientFactory.CreateClient(nameof(HubCatalogoClient));
+        Assert.Equal(new Uri("http://hub.interno/"), httpClient.BaseAddress);
+
+        var handler = httpMessageHandlerFactory.CreateHandler(nameof(HubCatalogoClient));
+        var tiposNaCadeia = new List<string>();
+        var atual = handler;
+        while (atual is DelegatingHandler delegatingHandler)
+        {
+            tiposNaCadeia.Add(delegatingHandler.GetType().FullName ?? delegatingHandler.GetType().Name);
+            atual = delegatingHandler.InnerHandler;
+        }
+
+        Assert.Contains(tiposNaCadeia, tipo => tipo.Contains("Resilience", StringComparison.Ordinal));
     }
 }

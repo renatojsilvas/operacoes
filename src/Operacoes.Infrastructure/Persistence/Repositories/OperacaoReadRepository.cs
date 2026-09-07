@@ -36,6 +36,13 @@ public sealed class OperacaoReadRepository(NpgsqlDataSource dataSource) : IOpera
         WHERE id = @id
         """;
 
+    private const string SqlObterInstrumentosNegociados =
+        """
+        SELECT DISTINCT instrumento_id
+        FROM operacoes
+        WHERE cliente_id = @clienteId
+        """;
+
     public async Task<Result<bool>> ExisteComoReferenciaDeEstornoAsync(
         string estornaOperacaoId, string clienteId, string instrumentoId, CancellationToken ct)
     {
@@ -59,5 +66,17 @@ public sealed class OperacaoReadRepository(NpgsqlDataSource dataSource) : IOpera
 
         return Result<OperacaoConsulta>.Success(
             linha is null ? OperacaoConsulta.NaoEncontrada : OperacaoConsulta.DeLinha(linha));
+    }
+
+    public async Task<Result<IReadOnlyList<string>>> ObterInstrumentosNegociadosAsync(string clienteId, CancellationToken ct)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(ct);
+
+        var linhas = await connection.QueryAsync<string>(
+            new CommandDefinition(SqlObterInstrumentosNegociados, new { clienteId }, cancellationToken: ct));
+
+        IReadOnlyList<string> instrumentos = linhas.ToList();
+
+        return Result<IReadOnlyList<string>>.Success(instrumentos);
     }
 }

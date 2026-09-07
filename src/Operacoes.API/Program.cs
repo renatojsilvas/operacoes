@@ -52,6 +52,7 @@ app.MapHealthChecks("/health");
 app.MapHealthChecks("/health/ready");
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapOperacoesEndpoints();
+app.MapInstrumentosEndpoints();
 app.MapMetrics();
 if (app.Environment.IsEnvironment("Testing"))
 {

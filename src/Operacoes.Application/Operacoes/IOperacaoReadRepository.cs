@@ -9,6 +9,8 @@ public interface IOperacaoReadRepository
         string estornaOperacaoId, string clienteId, string instrumentoId, CancellationToken ct);
 
     Task<Result<OperacaoConsulta>> ObterPorIdAsync(string id, CancellationToken ct);
+
+    Task<Result<IReadOnlyList<string>>> ObterInstrumentosNegociadosAsync(string clienteId, CancellationToken ct);
 }
 
 public sealed record OperacaoRegistradaRow(

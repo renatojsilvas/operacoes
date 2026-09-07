@@ -4,5 +4,5 @@ namespace Operacoes.Application.Catalogo;
 
 public interface IHubCatalogoClient
 {
-    Task<Result<bool>> InstrumentoExisteAsync(string instrumentoId, CancellationToken ct);
+    Task<Result<IReadOnlyList<InstrumentoCatalogo>>> BuscarPorTermoAsync(string termo, CancellationToken ct);
 }

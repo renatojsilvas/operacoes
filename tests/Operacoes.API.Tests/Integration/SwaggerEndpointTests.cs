@@ -28,7 +28,7 @@ public sealed class SwaggerEndpointTests(ApiTestFactory factory)
     }
 
     [Fact]
-    public async Task GetSwaggerJson_ShouldExposeOnlyOperacoesPostPath()
+    public async Task GetSwaggerJson_ShouldExposeOnlyOperacoesAndInstrumentosPaths()
     {
         var response = await _client.GetAsync("/swagger/v1/swagger.json", CancellationToken.None);
         var body = await response.Content.ReadAsStringAsync(CancellationToken.None);
@@ -36,10 +36,13 @@ public sealed class SwaggerEndpointTests(ApiTestFactory factory)
 
         var paths = document.RootElement.GetProperty("paths");
         var pathNames = paths.EnumerateObject().Select(p => p.Name).ToList();
-        Assert.Equal(["/v1/operacoes"], pathNames);
+        Assert.Equal(["/v1/operacoes/instrumentos", "/v1/operacoes"], pathNames);
         Assert.True(
             paths.GetProperty("/v1/operacoes").TryGetProperty("post", out _),
             $"/v1/operacoes deveria expor POST.\n{body}");
+        Assert.True(
+            paths.GetProperty("/v1/operacoes/instrumentos").TryGetProperty("get", out _),
+            $"/v1/operacoes/instrumentos deveria expor GET.\n{body}");
     }
 
     [Fact]

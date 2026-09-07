@@ -715,3 +715,172 @@ ação manual de um usuário. Fidelidade ao molde não é motivo para replicar
 defeito provado — é desvio **por correção**, e ele pede tarefa no repo de origem. Ver §10.10
 e §10.20: comparar com o molde acha o que faltou e o que sobrou copiado, mas **não acha o que
 está errado nos dois**.
+
+### 10.27. Cache-Control de leitura variável por cliente não pode herdar o `public` do molde
+
+Quando a resposta de um endpoint de leitura varia por um parâmetro controlado pelo próprio
+cliente (ex.: `clienteId` na query), o `Cache-Control` do `ConditionalGetFilter` não pode ser
+`public`, e não pode ser um valor cravado em constante — tem que ser parametrizável, com
+default `private, max-age=<TTL do dado que ele descreve>`.
+
+**Por quê:** o `Hub.API.Http.ConditionalGetFilter` crava `"public, max-age=300"` porque no Hub
+nada no corpo da resposta depende de quem pergunta — qualquer cliente pode receber a mesma
+resposta cacheada por um proxy compartilhado. No `operacoes` o primeiro consumidor do filtro
+(F5, catálogo de instrumentos filtrado por `clienteId`) tem exatamente essa dependência:
+`public` autorizaria um cache compartilhado (proxy, CDN) a servir a lista de um cliente para
+outro — vazamento de dado entre clientes por um header herdado do molde sem checar a premissa
+dele. E `max-age=300` (5 min) afirma frescor sobre um dado que só sustentamos por 60 s (o TTL do
+cache do catálogo do Hub, `Caching:CatalogoInstrumentos`) — é a §10.16 ("cache sem prazo é
+afirmação que nunca é confrontada") na forma de um prazo maior do que o dado de fato tem.
+
+**Guarda:** `ConditionalGetFilter` injeta a diretiva via `IConfiguration` (`Http:CacheControl`,
+default `private, max-age=60`), nunca uma constante. Teste que trava o default: a resposta
+contém `private` e não contém `public`. Ref: `API/Http/ConditionalGetFilter.cs`,
+`API.Tests/Http/ReadEndpointPipelineTests.cs`.
+
+### 10.28. Token de versão para conteúdo de outro serviço precisa de componente temporal, não só do banco local
+
+Quando o dado que um endpoint serve não é só o que está no banco local — vem também de um
+catálogo remoto cacheado —, o `IContentVersionProvider` não pode derivar a versão só das
+tabelas locais. Ele tem que somar um "balde" de tempo (`agora.Ticks / ttl.Ticks`), com o MESMO
+TTL do cache do dado remoto.
+
+**Por quê:** o `Hub.Infrastructure.Http.ContentVersionProvider` deriva a versão só do banco dele
+(`max(observado_em)`, `count(*)`, `max(criado_em)`) porque lá tudo que o endpoint serve está no
+banco do Hub. Copiar essa forma para o `operacoes` seria um defeito silencioso e grave: o F5
+serve o catálogo de instrumentos do Hub (via `IHubCatalogoClient`, cacheado por
+`Caching:CatalogoInstrumentos`), e uma versão que só olha para a tabela `operacoes` nunca muda
+quando o catálogo do Hub muda — um cliente que manda `If-None-Match` ficaria preso a `304` para
+sempre sobre um conteúdo externo que a versão não observa. É o mesmo incidente da §10.16 (ETag
+persistido que nunca expira), na forma inversa: aqui o problema não é o cache não ter prazo, é o
+token de versão não enxergar uma fonte de dado que ele deveria representar.
+
+**Guarda:** a versão soma duas partes — a local (Dapper, `max(registrado_em)`/`count(*)` de
+`operacoes`) e o balde temporal com o TTL do catálogo (`Caching:CatalogoInstrumentos`, default
+60 s — a MESMA chave que o cache do catálogo usa, para as duas nunca divergirem). Custo aceito:
+até um `200` espúrio por TTL quando nada mudou de fato — honesto, porque o dado é externo e o
+balde é o que torna a afirmação confrontável. Ref: `Infrastructure/Http/ContentVersionProvider.cs`,
+`API.Tests/Integration/ContentVersionProviderIntegrationTests.cs`.
+
+**Correção do próprio limite, achada em revisão adversarial depois que este item já estava
+escrito:** o pior caso de obsolescência NÃO é o TTL do catálogo, é a **soma de dois TTLs**. O
+`CachedContentVersionProvider` cacheia a string de versão por mais 10 s
+(`Caching:ContentVersion`), e essa string já carrega o balde dentro dela — então, quando o balde
+vira, a versão velha ainda pode ser servida por até o TTL dela. O limite real é
+`Caching:CatalogoInstrumentos + Caching:ContentVersion`, hoje 60 s + 10 s = **70 s**. Continua
+limitado, que é o que importa em relação à §10.16, mas quem calcular a janela pelo número que
+estava escrito aqui erra por 10 s.
+
+**A lição, que é maior que os 10 s:** dois caches em série multiplicam-se em janela de
+obsolescência, e o de fora esconde o de dentro. Ao empilhar cache sobre cache, o prazo que vale
+para quem lê a resposta é a SOMA dos prazos, nunca o menor deles nem o do mais próximo do dado —
+e é a soma que tem que ser escrita, porque é ela que alguém vai usar para dimensionar `max-age`,
+alerta ou janela de reconciliação. Aqui o `max-age=60` da §10.27 é, portanto, ligeiramente
+otimista em relação ao pior caso do servidor; é conservador na direção segura (o cliente
+revalida antes do servidor mudar de ideia), mas foi coincidência, não projeto.
+
+### 10.29. Cache compartilhado com um caminho de escrita não pode ter last-known-good
+
+Quando o mesmo cliente cacheado serve uma LEITURA de conveniência e a VALIDAÇÃO de uma escrita, a
+política de cache passa a ser decidida pelo caminho mais estrito dos dois. Fallback
+last-known-good, que é correto para a leitura, vira aceitação de escrita não validada.
+
+**Por quê:** a §4 deste catálogo pede, para dado externo, "fallback explícito e não-silencioso
+(fresh + last-known-good)" — e o `CachedProjecaoMercadoService` do `tesouro-direto-api` é o molde
+citado. No F5 do `operacoes` a auditoria de conformidade cobrou justamente essa ausência no
+`CachedHubCatalogoClient`, com razão à luz da §4 isolada. Só que no F5 a decisão de projeto foi
+unificar lista e validação num único método de `IHubCatalogoClient`, para que o invariante "mesma
+origem para lista e validação" (ARQUITETURA §6) valesse **por construção** e não por disciplina.
+Feita essa unificação, servir catálogo velho quando o Hub está fora faria o `POST /operacoes`
+**aceitar um instrumento que o Hub não confirmou** — exatamente o que a ADR-11 proíbe ("nunca
+aceitar sem validar, nunca rejeitar como inexistente por falha de infraestrutura"). O 503 honesto
+é o comportamento certo, e a §4 cede para a ADR quando as duas colidem.
+
+**A lição geral, que é maior que este caso:** unificar dois caminhos por baixo faz cada um herdar
+as restrições do outro. O ganho — o invariante virar construção — é real, e o custo também: a
+partir da unificação, toda política aplicada no ponto comum (cache, fallback, retry, timeout,
+normalização) tem que ser avaliada contra o caminho MAIS estrito, não contra aquele que motivou a
+mudança. Ao unificar, liste os dois consumidores e releia as restrições de cada um.
+
+**Guarda:** o cache do catálogo tem TTL e nada mais — sem par fresh/LKG, sem campo de origem.
+Ausência decidida, não esquecida. Se um dia a leitura precisar de degradação graciosa, ela não
+pode voltar por baixo, no cliente compartilhado: teria que ser uma camada acima, exclusiva do
+caminho de leitura, e aí o invariante da §6 precisa ser re-provado. Ref:
+`Infrastructure/Caching/CachedHubCatalogoClient.cs`, ADR-11.
+
+### 10.30. GET condicional serve sonda, não busca por termo
+
+`If-None-Match` contra um provedor que expõe ETag (§4) vale quando se bate na MESMA URL
+repetidamente. Para busca parametrizada por texto que o usuário digita, o store de ETag por termo
+tem acerto baixo e traz de volta uma peça com histórico de incidente.
+
+**Por quê:** o molde do consumo condicional é o `TdApiClient` do `hub-precos`, e ele é um JOB de
+ingestão: sonda a mesma URL a cada ciclo, então o `If-None-Match` quase sempre acerta e evita
+baixar um corpo caro. O `HubCatalogoClient` do `operacoes` é o oposto — a URL carrega o termo
+digitado, cada termo novo é um miss garantido, e os corpos são pequenos (matches de autocomplete).
+O que colapsa a rajada de quem está digitando é o cache de 60 s (§10.29), não o ETag. E o
+`ConditionalGetStore` é justamente a peça que causou o incidente da §10.16 quando ficou sem prazo.
+
+**Guarda:** ausência decidida e registrada. Se algum dia o `operacoes` passar a sondar uma URL fixa
+do Hub em ciclo (um refresh periódico do catálogo inteiro, por exemplo), aí o molde do
+`TdApiClient` volta a valer e o store precisa nascer com prazo, cap e evicção — as três coisas que
+a §10.16 cobra.
+
+### 10.31. Coleta paginada tem que distinguir "parei porque acabou" de "parei porque bati num limite"
+
+Todo laço que coleta páginas de um serviço externo tem **mais de uma** condição de parada. Cada
+uma precisa ser classificada como **completude** (coletei tudo que existe) ou **limite** (parei
+antes do fim), e as duas têm que produzir resultados **diferentes**: completude devolve sucesso;
+limite devolve falha. Parada por limite devolvida como `Result.Success` é um conjunto parcial
+apresentado como completo.
+
+**Por quê:** no F5 do `operacoes` este mesmo defeito foi encontrado **três vezes, por três portas
+diferentes**, cada uma numa rodada de revisão distinta, sempre com a suíte verde:
+
+1. **Teto de páginas.** `while (page <= MaxPaginas)` parava em 100 páginas e devolvia
+   `Success` com o que tinha. E o teste existente **documentava e aprovava** o truncamento,
+   afirmando só `IsSuccess == true`.
+2. **Descarte contaminando a contagem.** Ao acrescentar o descarte de item com `id` nulo, a soma
+   do total coletado podia passar a contar só os itens mantidos — fazendo um descarte legítimo
+   parecer truncamento (503 indevido), ou o inverso. Só a ordem "somar o bruto **antes** de
+   filtrar" separa as duas coisas, e ela não tinha teste que a travasse.
+3. **Header de total não confiável.** `X-Total-Count` era aceito por qualquer valor que passasse
+   no `int.TryParse`. Com `0`, negativo, ou qualquer número **menor que o já coletado**, a
+   condição de corte antecipado (`totalBruto >= totalAnunciado`) ficava verdadeira ao fim da
+   primeira página cheia: o laço encerrava, a página seguinte **nunca era pedida**, e o retorno
+   era `Success` com o catálogo truncado. Sem log nenhum — o ramo de erro compara
+   `totalBruto < totalAnunciado`, que aqui é falso por construção.
+
+O caso 3 é o mais instrutivo porque o dado que mentia vinha de **fora**: a guarda existia, mas
+guardava contra o valor ausente e não contra o valor errado — a §10.16 e a lição da guarda de
+variável vazia, outra vez, agora num header HTTP.
+
+**A gravidade não é "faltam itens na lista".** Quando o mesmo cliente serve a leitura e a
+validação de escrita (§10.29), o item silenciado deixa de existir para os dois: some do
+autocomplete **e** é rejeitado como inexistente pelo `POST`. Isso é o 422 mentiroso que a ADR-11
+proíbe explicitamente — "nunca rejeitar como inexistente por falha de infraestrutura". Truncar em
+silêncio não degrada a leitura; corrompe a escrita.
+
+**Guarda:**
+- Enumere as condições de parada do laço e classifique **cada uma**. No `HubCatalogoClient` são
+  quatro: página parcial (completude), total anunciado atingido na igualdade exata (completude),
+  teto de páginas (limite → falha), total anunciado maior que o coletado ao fim (limite → falha).
+- Metadado vindo do outro serviço só vale enquanto for **consistente com o que você já viu**:
+  aceite `X-Total-Count` apenas se `> 0`, e **descarte-o com `LogWarning`** se em algum momento o
+  coletado ultrapassá-lo. Descartar faz coletar **mais**, nunca menos — é a direção segura.
+- Separe os rótulos de erro, como manda o corolário da §10.26: `Hub.Indisponivel` (transitório,
+  "tente novamente" é honesto) × `Hub.ColetaIncompleta` (estrutural e determinístico, onde repetir
+  dá o mesmo resultado). Os dois são 503; o que muda é o `code`, e é ele que manda o operador para
+  o lado certo.
+- Teste o **boundary**, não só o caso fácil: total anunciado múltiplo exato do `pageSize` com a
+  última página **cheia** é o único cenário que exercita o corte por igualdade — todos os casos
+  de "o total bate" com página parcial encerram pelo outro ramo e deixam esse código sem
+  cobertura. Ref: `Infrastructure/Catalogo/HubCatalogoClient.cs`,
+  `Infrastructure.Tests/Catalogo/HubCatalogoClientTests.cs`.
+
+**Nota sobre mutante equivalente, para quem for medir a suíte:** depois da guarda de descarte
+existir, trocar `totalBruto == totalConhecido` por `>=` **não** quebra nenhum teste, e isso está
+certo — o descarte garante que, naquele ponto, `totalBruto` nunca excede o total conhecido, então
+as duas formas são semanticamente idênticas. Mutação que sobrevive nem sempre é buraco de
+cobertura; às vezes é redundância. A guarda que sustenta a correção é o descarte, e essa tem
+teste que a trava.

@@ -92,5 +92,8 @@ public sealed class OperacaoConfiguration : IEntityTypeConfiguration<Operacao>
 
         builder.HasIndex(o => new { o.EstornaOperacaoId, o.ClienteId, o.InstrumentoId })
             .HasDatabaseName("ix_operacoes_estorna_cliente_instrumento");
+
+        builder.HasIndex(o => new { o.ClienteId, o.InstrumentoId })
+            .HasDatabaseName("ix_operacoes_cliente_instrumento");
     }
 }
