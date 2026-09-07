@@ -884,3 +884,36 @@ certo — o descarte garante que, naquele ponto, `totalBruto` nunca excede o tot
 as duas formas são semanticamente idênticas. Mutação que sobrevive nem sempre é buraco de
 cobertura; às vezes é redundância. A guarda que sustenta a correção é o descarte, e essa tem
 teste que a trava.
+
+### 10.32. Quem sabe a diferença é quem deve marcá-la, não quem consome
+
+Se um produtor já distingue dois casos estruturalmente, ele tem que **marcar** essa distinção no
+dado. O consumidor não pode re-derivá-la por heurística sobre o conteúdo — código de erro,
+mensagem, tipo, prefixo de id. Toda re-derivação apodrece no primeiro caso novo, e apodrece em
+silêncio.
+
+**Por quê:** achado no `hub-precos` ao portar para lá a §10.31, e a lição é geral. O
+`IngerirPrecosTdCommandHandler` decidia se um instrumento tinha sido truncado comparando o
+`Error.Code` contra uma **allowlist de dois códigos**. Ela já nascera incompleta — um terceiro erro
+que existia desde sempre nunca esteve na lista. Inverter para "tudo que não for o erro de linha"
+pareceu resolver e **gerou regressão na mesma branch**: não cobria um segundo erro de linha, que
+passou a inflar a métrica de falha. Seria a terceira encarnação da mesma lista.
+
+O teste escrito para proteger a lista varria por reflexão **um** catálogo de erros, e o erro que
+causou a regressão vinha de **outro** — o teste era cego exatamente para a direção do defeito.
+Guarda que só enxerga um catálogo não guarda contra o outro.
+
+E o produtor **já sabia a resposta**: no adapter, erro de stream é seguido de `break` e erro de
+linha de `continue`. A informação existia, estruturada, e estava sendo jogada fora para ser
+adivinhada rio abaixo.
+
+**Guarda:** faça a distinção viajar com o dado, num campo **obrigatório** (sem default — default
+faz um produtor futuro esquecer de marcar, em silêncio, que é o mesmo default inseguro de origem),
+preenchido no ponto onde ela é conhecida. O consumidor decide só por ele.
+
+**E teste contra a re-derivação, não contra o caso:** o teste tem que usar valores que uma
+decisão-por-conteúdo classificaria **ao contrário** da marcação, **nos dois sentidos**. Marcar
+"trunca" num item cujo código a lista antiga consideraria de linha, e "não trunca" num cujo código
+ela consideraria de stream. Assim qualquer reintrodução reprova nos dois casos. Um teste com valor
+neutro — um código inventado que nenhuma lista conhece — reprova por coincidência em só um dos
+lados, e some no dia em que alguém apagar aquele lado.
