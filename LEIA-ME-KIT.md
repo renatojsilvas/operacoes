@@ -898,3 +898,31 @@ enunciado sugerir.
 de representar. Fake construído a partir de um `bool` só sabe dizer sim e não; se o defeito mora
 no "sim parcial", nenhuma quantidade de testes sobre aquele fake vai encontrá-lo. Cobertura é
 limitada pelo vocabulário do dublê, não pelo número de casos.
+
+## Rodar o revisor contra entrega não commitada
+
+O `revisor` **muta a implementação de propósito** — é o que ele faz de útil. Para reverter, o
+caminho que qualquer um alcança primeiro é `git checkout -- <arquivo>`. E `git checkout` não
+"reverte a mutação": ele volta o arquivo ao **último commit**. Se a entrega inteira está só no
+working tree, isso apaga o trabalho todo, e o agente não tem como saber que apagou — o arquivo
+existe, compila, e os testes até passam, porque voltaram a um estado consistente anterior.
+
+Aconteceu no F5, no porte da correção para o `hub-precos`: o revisor fez `git checkout` no
+`TdApiClient.cs` e perdeu as mudanças não commitadas. Ele tinha feito uma cópia de segurança antes
+e restaurou, e conferiu por `diff` que o conteúdo voltou idêntico — então não custou nada. Mas foi
+por disciplina dele, não por proteção do processo.
+
+**Regra:** commite antes da revisão adversarial. Branch de trabalho existe para isso, e "commit
+que vai ser reescrito no squash" não custa nada. Se por algum motivo não der para commitar, tire
+um snapshot (`tar czf` do `src`/`tests` para fora do repo), diga ao revisor onde ele está, e
+**proíba explicitamente `git checkout`/`git restore`/`git stash`** no prompt — mandando restaurar
+por `cp` da cópia. As três formas apagam trabalho não commitado, e as três parecem seguras.
+
+**Corolário, e é o que quase enganou duas revisões:** quando boa parte da entrega está em arquivos
+**não rastreados** (`??` no `git status`), o `git diff` **não mostra nada disso**. Um revisor que
+comece por `git diff` conclui que a entrega é menor do que é, ou que não existe — foi o mesmo
+sintoma que o `isolation: "worktree"` produziu no `hub`, com outra causa. Todo prompt de revisão
+sobre trabalho não commitado tem que mandar **começar por `git status --short`** e ler os arquivos
+novos direto. E ao final, conferir a reversão contra o snapshot, não só contra o `git diff` — se o
+arquivo voltou para o commit anterior, o `git diff` fica **limpo**, que é exatamente o sinal
+errado: limpo aqui significa "perdi tudo", não "não sobrou mutação".
