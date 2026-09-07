@@ -408,7 +408,7 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
   precisam ser recriados **antes** de qualquer publicação, ou os eventos desse intervalo somem
   sem sinal nenhum.
 
-- [ ] **F5** — `GET /operacoes/instrumentos?query=...` (§6): proxy do catálogo do Hub
+- [x] **F5** — `GET /operacoes/instrumentos?query=...` (§6): proxy do catálogo do Hub
   com cache curto, no padrão `MapReadGet` do molde. Conveniências que são **de
   Operações, não do Hub**: priorizar instrumentos que o cliente já possui, e ocultar
   vencidos por default **mas permitir encontrá-los** — lançamento retroativo de título
@@ -473,6 +473,31 @@ Arquitetura: `../plataforma-docs/ARQUITETURA.md`. Molde: `../hub-precos`
     página. **Se o catálogo crescer para além disso, ou se entrarem classes de universo
     aberto, esta é a primeira decisão a revisitar:** o sintoma será 503 intermitente e sem
     causa aparente no autocomplete, e a causa não estará no Hub nem na rede.
+
+  **FEITO** — PR #14, mergeado em 2026-09-07 (`811257e`), deployado no mesmo dia. Suíte
+  398 → **506**, cobertura de linha 95,00% (era 91,61% no F4).
+
+  **Prova em produção**, contra o Hub real e pelo caminho de verdade (a lição do F4 é que
+  prova por atalho dá falso negativo):
+
+  - `GET /v1/operacoes/instrumentos?query=tesouro&limit=5` → **200**, com
+    `Cache-Control: private, max-age=60` (o desvio do molde vivo — §10.27), `ETag`,
+    `X-Total-Count: 58` com 5 itens no corpo (total **pós-filtro e pré-corte**, como
+    projetado) e **sem** `Link`. Sem `clienteId`, a propriedade `jaNegociado` **não existe**
+    no JSON;
+  - `POST /v1/operacoes` com `td:tesouro-educa-mais-2030-12-15` — **um id que o próprio
+    autocomplete acabara de oferecer** → **201**. É o invariante da §6 provado no ar, e não
+    só por teste: mesma origem para lista e validação;
+  - a mesma busca repetida **com** `clienteId` → o instrumento recém-negociado voltou com
+    `"jaNegociado": true` **e em primeiro lugar**, os demais com `false`. As três semânticas
+    distintas ("não perguntei" = campo ausente, "perguntei e não" = `false`, "perguntei e
+    sim" = `true`) funcionando ponta a ponta;
+  - a outbox fechando o ciclo do F4: uma linha `TradeRegistered` / `trades.registered` com
+    `publicado_em` preenchido;
+  - migration aplicada: `ix_operacoes_cliente_instrumento` presente no `pg_indexes`.
+
+  Tabelas conferidas em **0/0 antes** do POST e limpas com `TRUNCATE` depois — append-only,
+  limpeza decidida **antes** de escrever.
 
 Com o F5, fecha a **metade "Operações" do item 3** da ordem de implementação (§9). A
 outra metade é a Custódia, em repo próprio: o critério de pronto do item ("aplicação
