@@ -40,7 +40,8 @@ public sealed class OperacoesEndpointsTests : IDisposable
         decimal quantidade = 10m,
         decimal valorFinanceiro = 1000m,
         string dataEvento = PastPastDate,
-        string? estornaOperacaoId = null) => new
+        string? estornaOperacaoId = null,
+        decimal? valorOrigemSaldo = 500m) => new
         {
             clienteId,
             instrumentoId,
@@ -49,6 +50,7 @@ public sealed class OperacoesEndpointsTests : IDisposable
             valorFinanceiro,
             dataEvento,
             estornaOperacaoId,
+            valorOrigemSaldo,
         };
 
     private static HttpRequestMessage BuildRequest(object corpo, string? idempotencyKey)
@@ -139,7 +141,7 @@ public sealed class OperacoesEndpointsTests : IDisposable
         var originalBody = await originalResponse.Content.ReadAsStringAsync();
         var originalId = JsonDocument.Parse(originalBody).RootElement.GetProperty("id").GetString()!;
 
-        var corpoEstorno = CorpoValido(clienteId, instrumentoId, tipo: "estorno", estornaOperacaoId: originalId);
+        var corpoEstorno = CorpoValido(clienteId, instrumentoId, tipo: "estorno", estornaOperacaoId: originalId, valorOrigemSaldo: null);
 
         using var estorno1 = BuildRequest(corpoEstorno, $"idem-estorno-1-{NovoId()}");
         var estorno1Response = await _client.SendAsync(estorno1);
@@ -169,7 +171,7 @@ public sealed class OperacoesEndpointsTests : IDisposable
         var originalId = JsonDocument.Parse(await originalResponse.Content.ReadAsStringAsync())
             .RootElement.GetProperty("id").GetString()!;
 
-        var corpoEstorno = CorpoValido(clienteId, instrumentoId, tipo: "estorno", estornaOperacaoId: originalId);
+        var corpoEstorno = CorpoValido(clienteId, instrumentoId, tipo: "estorno", estornaOperacaoId: originalId, valorOrigemSaldo: null);
 
         var respostas = await Task.WhenAll(Enumerable.Range(0, 10).Select(async i =>
         {
@@ -393,6 +395,77 @@ public sealed class OperacoesEndpointsTests : IDisposable
         Assert.Equal("TipoOperacao.Invalido", await GetCodeAsync(response));
     }
 
+    [Theory]
+    [InlineData("aporte")]
+    [InlineData("aplicacao")]
+    public async Task Post_ComValorOrigemSaldoAusente_TipoAporteOuAplicacao_Retorna422ComCode(string tipo)
+    {
+        using var request = BuildRequest(
+            CorpoValido($"cliente-{NovoId()}", "td:tesouro-selic-2029", tipo: tipo, valorOrigemSaldo: null),
+            $"idem-{NovoId()}");
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("Operacao.ValorOrigemSaldoIncoerente", await GetCodeAsync(response));
+    }
+
+    [Theory]
+    [InlineData("resgate")]
+    [InlineData("estorno")]
+    public async Task Post_ComValorOrigemSaldoPresente_TipoResgateOuEstorno_Retorna422ComCode(string tipo)
+    {
+        var corpo = tipo == "estorno"
+            ? CorpoValido($"cliente-{NovoId()}", "td:tesouro-selic-2029", tipo: tipo, estornaOperacaoId: $"op-{NovoId()}", valorOrigemSaldo: 500m)
+            : CorpoValido($"cliente-{NovoId()}", "td:tesouro-selic-2029", tipo: tipo, valorOrigemSaldo: 500m);
+
+        using var request = BuildRequest(corpo, $"idem-{NovoId()}");
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("Operacao.ValorOrigemSaldoIncoerente", await GetCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Post_ComValorOrigemSaldoValido_Retorna201ComOCampoNoCorpo()
+    {
+        var clienteId = $"cliente-{NovoId()}";
+        var instrumentoId = "td:tesouro-selic-2029";
+
+        using var request = BuildRequest(
+            CorpoValido(clienteId, instrumentoId, valorFinanceiro: 1000m, valorOrigemSaldo: 900m),
+            $"idem-{NovoId()}");
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        var root = JsonDocument.Parse(body).RootElement;
+        Assert.Equal(900m, root.GetProperty("valorOrigemSaldo").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Post_ComValorOrigemSaldoMaiorQueValorFinanceiro_Retorna422ComCode()
+    {
+        using var request = BuildRequest(
+            CorpoValido($"cliente-{NovoId()}", "td:tesouro-selic-2029", valorFinanceiro: 1000m, valorOrigemSaldo: 1000.01m),
+            $"idem-{NovoId()}");
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("Operacao.ValorOrigemSaldoExcedeValorFinanceiro", await GetCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Post_ComValorOrigemSaldoNegativo_Retorna422ComCode()
+    {
+        using var request = BuildRequest(
+            CorpoValido($"cliente-{NovoId()}", "td:tesouro-selic-2029", valorOrigemSaldo: -0.01m),
+            $"idem-{NovoId()}");
+        var response = await _client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("Operacao.ValorOrigemSaldoInvalido", await GetCodeAsync(response));
+    }
+
     [Fact]
     public async Task Post_ComEstornaOperacaoIdSemTipoEstorno_Retorna422ComCode()
     {
@@ -409,7 +482,7 @@ public sealed class OperacoesEndpointsTests : IDisposable
     public async Task Post_ComEstornaOperacaoIdVazia_TipoEstorno_Retorna422ComCode()
     {
         using var request = BuildRequest(
-            CorpoValido($"cliente-{NovoId()}", "td:tesouro-selic-2029", tipo: "estorno", estornaOperacaoId: "   "),
+            CorpoValido($"cliente-{NovoId()}", "td:tesouro-selic-2029", tipo: "estorno", estornaOperacaoId: "   ", valorOrigemSaldo: null),
             $"idem-{NovoId()}");
         var response = await _client.SendAsync(request);
 
@@ -421,7 +494,7 @@ public sealed class OperacoesEndpointsTests : IDisposable
     public async Task Post_ComEstornoReferenciandoOperacaoInexistente_Retorna422ComCode()
     {
         using var request = BuildRequest(
-            CorpoValido($"cliente-{NovoId()}", "td:tesouro-selic-2029", tipo: "estorno", estornaOperacaoId: $"op-{NovoId()}"),
+            CorpoValido($"cliente-{NovoId()}", "td:tesouro-selic-2029", tipo: "estorno", estornaOperacaoId: $"op-{NovoId()}", valorOrigemSaldo: null),
             $"idem-{NovoId()}");
         var response = await _client.SendAsync(request);
 
@@ -443,7 +516,7 @@ public sealed class OperacoesEndpointsTests : IDisposable
             .RootElement.GetProperty("id").GetString();
 
         using var estorno = BuildRequest(
-            CorpoValido(clienteB, instrumentoId, tipo: "estorno", estornaOperacaoId: originalId), $"idem-{NovoId()}");
+            CorpoValido(clienteB, instrumentoId, tipo: "estorno", estornaOperacaoId: originalId, valorOrigemSaldo: null), $"idem-{NovoId()}");
         var estornoResponse = await _client.SendAsync(estorno);
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, estornoResponse.StatusCode);

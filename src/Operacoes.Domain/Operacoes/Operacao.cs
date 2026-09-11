@@ -13,7 +13,8 @@ public sealed class Operacao : Entity<string>
         decimal valorFinanceiro,
         DateOnly dataEvento,
         DateTimeOffset registradoEm,
-        string? estornaOperacaoId)
+        string? estornaOperacaoId,
+        decimal? valorOrigemSaldo)
         : base(id)
     {
         ClienteId = clienteId;
@@ -24,6 +25,7 @@ public sealed class Operacao : Entity<string>
         DataEvento = dataEvento;
         RegistradoEm = registradoEm;
         EstornaOperacaoId = estornaOperacaoId;
+        ValorOrigemSaldo = valorOrigemSaldo;
     }
 
     public string ClienteId { get; }
@@ -34,6 +36,7 @@ public sealed class Operacao : Entity<string>
     public DateOnly DataEvento { get; }
     public DateTimeOffset RegistradoEm { get; }
     public string? EstornaOperacaoId { get; }
+    public decimal? ValorOrigemSaldo { get; }
     public static Result<Operacao> Create(
         string id,
         string clienteId,
@@ -44,7 +47,8 @@ public sealed class Operacao : Entity<string>
         DateOnly dataEvento,
         DateTimeOffset registradoEm,
         DateOnly hoje,
-        string? estornaOperacaoId = null)
+        string? estornaOperacaoId = null,
+        decimal? valorOrigemSaldo = null)
     {
         ArgumentNullException.ThrowIfNull(tipo);
         if (string.IsNullOrWhiteSpace(id))
@@ -75,6 +79,26 @@ public sealed class Operacao : Entity<string>
         {
             return OperacaoErrors.ValorFinanceiroExcedePrecisaoSuportada;
         }
+        if (valorOrigemSaldo is not null)
+        {
+            if (ExcedePrecisaoSuportada(valorOrigemSaldo.Value, OperacaoNumericLimits.ValorFinanceiroLimiteSuperiorExclusivo, OperacaoNumericLimits.ValorFinanceiroEscala))
+            {
+                return OperacaoErrors.ValorOrigemSaldoExcedePrecisaoSuportada;
+            }
+            if (valorOrigemSaldo.Value < 0)
+            {
+                return OperacaoErrors.ValorOrigemSaldoInvalido;
+            }
+            if (valorOrigemSaldo.Value > valorFinanceiro)
+            {
+                return OperacaoErrors.ValorOrigemSaldoExcedeValorFinanceiro;
+            }
+        }
+        var exigeValorOrigemSaldo = tipo == TipoOperacao.Aplicacao || tipo == TipoOperacao.Aporte;
+        if (exigeValorOrigemSaldo != (valorOrigemSaldo is not null))
+        {
+            return OperacaoErrors.ValorOrigemSaldoIncoerente;
+        }
         if (dataEvento > hoje)
         {
             return OperacaoErrors.DataEventoFutura;
@@ -98,7 +122,7 @@ public sealed class Operacao : Entity<string>
         }
         return new Operacao(
             idNormalizado, clienteIdNormalizado, instrumentoIdNormalizado, tipo, quantidade,
-            valorFinanceiro, dataEvento, registradoEm, estornaOperacaoIdNormalizado);
+            valorFinanceiro, dataEvento, registradoEm, estornaOperacaoIdNormalizado, valorOrigemSaldo);
     }
 
     private static bool ExcedePrecisaoSuportada(decimal valor, decimal limiteSuperiorExclusivo, int escala) =>

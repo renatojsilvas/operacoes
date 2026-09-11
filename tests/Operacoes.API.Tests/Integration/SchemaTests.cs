@@ -145,6 +145,7 @@ public sealed class SchemaTests
         {
             "id", "cliente_id", "instrumento_id", "operacao", "quantidade",
             "valor_financeiro", "data_evento", "registrado_em", "estorna_operacao_id",
+            "valor_origem_saldo",
         };
         Assert.True(
             expected.ToHashSet().SetEquals(columns.Keys),
@@ -158,6 +159,7 @@ public sealed class SchemaTests
         AssertColumn(columns, "operacoes", "valor_financeiro", "numeric", expectedNullable: false);
         AssertColumn(columns, "operacoes", "data_evento", "date", expectedNullable: false);
         AssertColumn(columns, "operacoes", "estorna_operacao_id", "text", expectedNullable: true);
+        AssertColumn(columns, "operacoes", "valor_origem_saldo", "numeric", expectedNullable: true);
         var quantidade = columns["quantidade"];
         Assert.True(
             quantidade.NumericPrecision == 18 && quantidade.NumericScale == 8,
@@ -168,11 +170,18 @@ public sealed class SchemaTests
             valorFinanceiro.NumericPrecision == 18 && valorFinanceiro.NumericScale == 2,
             "operacoes.valor_financeiro: esperava numeric(18,2), encontrado " +
             $"numeric({valorFinanceiro.NumericPrecision},{valorFinanceiro.NumericScale}).");
+        var valorOrigemSaldo = columns["valor_origem_saldo"];
+        Assert.True(
+            valorOrigemSaldo.NumericPrecision == 18 && valorOrigemSaldo.NumericScale == 2,
+            "operacoes.valor_origem_saldo: esperava numeric(18,2), encontrado " +
+            $"numeric({valorOrigemSaldo.NumericPrecision},{valorOrigemSaldo.NumericScale}).");
 
         Assert.Equal(quantidade.NumericPrecision, OperacaoNumericLimits.QuantidadePrecisao);
         Assert.Equal(quantidade.NumericScale, OperacaoNumericLimits.QuantidadeEscala);
         Assert.Equal(valorFinanceiro.NumericPrecision, OperacaoNumericLimits.ValorFinanceiroPrecisao);
         Assert.Equal(valorFinanceiro.NumericScale, OperacaoNumericLimits.ValorFinanceiroEscala);
+        Assert.Equal(valorOrigemSaldo.NumericPrecision, OperacaoNumericLimits.ValorFinanceiroPrecisao);
+        Assert.Equal(valorOrigemSaldo.NumericScale, OperacaoNumericLimits.ValorFinanceiroEscala);
     }
 
     [Fact]
@@ -470,8 +479,8 @@ public sealed class SchemaTests
         var id = $"op-schema-tests-{Guid.NewGuid():N}";
         await connection.ExecuteAsync(
             """
-            INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento)
-            VALUES (@id, 'cliente-1', 'td:tesouro-selic-2029', 'aporte', 10.5, 1000.00, '2026-01-01')
+            INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento, valor_origem_saldo)
+            VALUES (@id, 'cliente-1', 'td:tesouro-selic-2029', 'aporte', 10.5, 1000.00, '2026-01-01', 500.00)
             """,
             new { id });
         var count = await connection.ExecuteScalarAsync<long>(
@@ -487,8 +496,8 @@ public sealed class SchemaTests
         var id = $"op-schema-tests-{Guid.NewGuid():N}";
         await connection.ExecuteAsync(
             """
-            INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento)
-            VALUES (@id, 'cliente-1', 'td:tesouro-selic-2029', 'aporte', 10.5, 1000.00, '2026-01-01')
+            INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento, valor_origem_saldo)
+            VALUES (@id, 'cliente-1', 'td:tesouro-selic-2029', 'aporte', 10.5, 1000.00, '2026-01-01', 500.00)
             """,
             new { id });
         var exception = await Record.ExceptionAsync(() => connection.ExecuteAsync(
@@ -506,8 +515,8 @@ public sealed class SchemaTests
         var id = $"op-schema-tests-{Guid.NewGuid():N}";
         await connection.ExecuteAsync(
             """
-            INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento)
-            VALUES (@id, 'cliente-1', 'td:tesouro-selic-2029', 'aporte', 10.5, 1000.00, '2026-01-01')
+            INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento, valor_origem_saldo)
+            VALUES (@id, 'cliente-1', 'td:tesouro-selic-2029', 'aporte', 10.5, 1000.00, '2026-01-01', 500.00)
             """,
             new { id });
         var exception = await Record.ExceptionAsync(() => connection.ExecuteAsync(
@@ -524,14 +533,35 @@ public sealed class SchemaTests
         string clienteId,
         string instrumentoId,
         string operacao,
+        string? estornaOperacaoId = null,
+        decimal? valorOrigemSaldo = null)
+    {
+        var valorOrigemSaldoEfetivo = valorOrigemSaldo ??
+            (operacao is "aplicacao" or "aporte" ? 500.00m : (decimal?)null);
+        await connection.ExecuteAsync(
+            """
+            INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento, estorna_operacao_id, valor_origem_saldo)
+            VALUES (@id, @clienteId, @instrumentoId, @operacao, 10.5, 1000.00, '2026-01-01', @estornaOperacaoId, @valorOrigemSaldoEfetivo)
+            """,
+            new { id, clienteId, instrumentoId, operacao, estornaOperacaoId, valorOrigemSaldoEfetivo });
+    }
+
+    private async Task InsertOperacaoValorOrigemSaldoBrutoAsync(
+        NpgsqlConnection connection,
+        string id,
+        string clienteId,
+        string instrumentoId,
+        string operacao,
+        decimal valorFinanceiro,
+        decimal? valorOrigemSaldo,
         string? estornaOperacaoId = null)
     {
         await connection.ExecuteAsync(
             """
-            INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento, estorna_operacao_id)
-            VALUES (@id, @clienteId, @instrumentoId, @operacao, 10.5, 1000.00, '2026-01-01', @estornaOperacaoId)
+            INSERT INTO operacoes (id, cliente_id, instrumento_id, operacao, quantidade, valor_financeiro, data_evento, estorna_operacao_id, valor_origem_saldo)
+            VALUES (@id, @clienteId, @instrumentoId, @operacao, 10.5, @valorFinanceiro, '2026-01-01', @estornaOperacaoId, @valorOrigemSaldo)
             """,
-            new { id, clienteId, instrumentoId, operacao, estornaOperacaoId });
+            new { id, clienteId, instrumentoId, operacao, valorFinanceiro, estornaOperacaoId, valorOrigemSaldo });
     }
 
     [Fact]
@@ -556,6 +586,14 @@ public sealed class SchemaTests
         Assert.True(
             constraints.TryGetValue("FK_operacoes_operacoes_estorna_operacao_id", out var tipoFk) && tipoFk == 'f',
             "FK_operacoes_operacoes_estorna_operacao_id: FOREIGN KEY constraint não encontrado em operacoes.");
+        Assert.True(
+            constraints.TryGetValue("ck_operacoes_valor_origem_saldo_coerente", out var tipoValorOrigemSaldoCoerente)
+            && tipoValorOrigemSaldoCoerente == 'c',
+            "ck_operacoes_valor_origem_saldo_coerente: CHECK constraint não encontrado em operacoes.");
+        Assert.True(
+            constraints.TryGetValue("ck_operacoes_valor_origem_saldo_faixa", out var tipoValorOrigemSaldoFaixa)
+            && tipoValorOrigemSaldoFaixa == 'c',
+            "ck_operacoes_valor_origem_saldo_faixa: CHECK constraint não encontrado em operacoes.");
     }
 
     [Fact]
@@ -790,7 +828,8 @@ public sealed class SchemaTests
             dataEvento: new DateOnly(2026, 1, 1),
             registradoEm: DateTimeOffset.UtcNow,
             hoje: new DateOnly(2026, 1, 1),
-            estornaOperacaoId: estornaOperacaoIdEfetivo);
+            estornaOperacaoId: estornaOperacaoIdEfetivo,
+            valorOrigemSaldo: tipo == TipoOperacao.Aporte ? 500m : null);
         if (domainResult.IsSuccess)
         {
             var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
@@ -838,7 +877,8 @@ public sealed class SchemaTests
             valorFinanceiro: 1000m,
             dataEvento: new DateOnly(2026, 1, 1),
             registradoEm: DateTimeOffset.UtcNow,
-            hoje: new DateOnly(2026, 1, 1));
+            hoje: new DateOnly(2026, 1, 1),
+            valorOrigemSaldo: 500m);
         Assert.True(domainResult.IsSuccess, $"Domínio deveria aceitar '{campo}' com espaços ao redor.");
         var operacao = domainResult.Value;
         var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
@@ -855,5 +895,97 @@ public sealed class SchemaTests
         Assert.Equal(idBase, linha.Id);
         Assert.Equal(clienteIdBase, linha.ClienteId);
         Assert.Equal(instrumentoIdBase, linha.InstrumentoId);
+    }
+
+    public static IEnumerable<object?[]> CombinacoesDeValorOrigemSaldo()
+    {
+        yield return new object?[] { TipoOperacao.Aplicacao, null };
+        yield return new object?[] { TipoOperacao.Aporte, null };
+        yield return new object?[] { TipoOperacao.Resgate, 500m };
+        yield return new object?[] { TipoOperacao.Aporte, -0.01m };
+        yield return new object?[] { TipoOperacao.Aporte, 1000.01m };
+        yield return new object?[] { TipoOperacao.Aporte, 0m };
+        yield return new object?[] { TipoOperacao.Aporte, 1000m };
+        yield return new object?[] { TipoOperacao.Aplicacao, 500m };
+    }
+
+    [Theory]
+    [MemberData(nameof(CombinacoesDeValorOrigemSaldo))]
+    public async Task DominioEBanco_ConcordamSobreValorOrigemSaldo(TipoOperacao tipo, decimal? valorOrigemSaldo)
+    {
+        using var connection = await OpenConnectionAsync();
+
+        var clienteId = $"cliente-concordancia-{Guid.NewGuid():N}";
+        var instrumentoId = "td:tesouro-selic-2029";
+        var id = $"op-schema-tests-{Guid.NewGuid():N}";
+        const decimal valorFinanceiro = 1000m;
+
+        var domainResult = Operacao.Create(
+            id: id,
+            clienteId: clienteId,
+            instrumentoId: instrumentoId,
+            tipo: tipo,
+            quantidade: 10m,
+            valorFinanceiro: valorFinanceiro,
+            dataEvento: new DateOnly(2026, 1, 1),
+            registradoEm: DateTimeOffset.UtcNow,
+            hoje: new DateOnly(2026, 1, 1),
+            valorOrigemSaldo: valorOrigemSaldo);
+
+        if (domainResult.IsSuccess)
+        {
+            var exception = await Record.ExceptionAsync(() => InsertOperacaoValorOrigemSaldoBrutoAsync(
+                connection, id, clienteId, instrumentoId, tipo.Name, valorFinanceiro, valorOrigemSaldo));
+            Assert.True(
+                exception is null,
+                "Domínio aceitou, mas o banco rejeitou a mesma operação: " +
+                $"tipo='{tipo.Name}', valorOrigemSaldo='{valorOrigemSaldo}', exceção: {exception}.");
+        }
+        else
+        {
+            var exception = await Record.ExceptionAsync(() => InsertOperacaoValorOrigemSaldoBrutoAsync(
+                connection, id, clienteId, instrumentoId, tipo.Name, valorFinanceiro, valorOrigemSaldo));
+            Assert.True(
+                exception is not null,
+                "Domínio rejeitou, mas o banco aceitou o mesmo valor cru — dado irreparável numa " +
+                $"tabela append-only: tipo='{tipo.Name}', valorOrigemSaldo='{valorOrigemSaldo}', " +
+                $"erro do Domínio: {domainResult.Error.Code}.");
+            Assert.IsType<PostgresException>(exception);
+        }
+    }
+
+    [Fact]
+    public async Task DominioEBanco_ConcordamSobreValorOrigemSaldo_TipoEstornoComReferenciaValida_AmbosRejeitam()
+    {
+        using var connection = await OpenConnectionAsync();
+
+        var clienteId = $"cliente-concordancia-{Guid.NewGuid():N}";
+        var instrumentoId = "td:tesouro-selic-2029";
+        var original = $"op-schema-tests-{Guid.NewGuid():N}";
+        await InsertOperacaoAsync(connection, original, clienteId, instrumentoId, "aporte");
+
+        var id = $"op-schema-tests-{Guid.NewGuid():N}";
+        var domainResult = Operacao.Create(
+            id: id,
+            clienteId: clienteId,
+            instrumentoId: instrumentoId,
+            tipo: TipoOperacao.Estorno,
+            quantidade: 10m,
+            valorFinanceiro: 1000m,
+            dataEvento: new DateOnly(2026, 1, 1),
+            registradoEm: DateTimeOffset.UtcNow,
+            hoje: new DateOnly(2026, 1, 1),
+            estornaOperacaoId: original,
+            valorOrigemSaldo: 500m);
+
+        Assert.True(domainResult.IsFailure, "Domínio deveria rejeitar valorOrigemSaldo presente para tipo estorno.");
+
+        var exception = await Record.ExceptionAsync(() => InsertOperacaoAsync(
+            connection, id, clienteId, instrumentoId, "estorno", estornaOperacaoId: original, valorOrigemSaldo: 500m));
+        Assert.True(
+            exception is not null,
+            "Domínio rejeitou, mas o banco aceitou valorOrigemSaldo presente para tipo estorno mesmo com " +
+            $"referência válida — dado irreparável numa tabela append-only. Erro do Domínio: {domainResult.Error.Code}.");
+        Assert.IsType<PostgresException>(exception);
     }
 }

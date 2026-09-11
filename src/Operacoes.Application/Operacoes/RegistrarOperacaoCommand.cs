@@ -11,6 +11,7 @@ public sealed record RegistrarOperacaoCommand(
     decimal ValorFinanceiro,
     DateOnly DataEvento,
     string? EstornaOperacaoId,
+    decimal? ValorOrigemSaldo,
     string IdempotencyKey) : IRequest<Result<RegistrarOperacaoResultado>>;
 
 public sealed record RegistrarOperacaoResultado(
@@ -23,4 +24,5 @@ public sealed record RegistrarOperacaoResultado(
     DateOnly DataEvento,
     DateTimeOffset RegistradoEm,
     string? EstornaOperacaoId,
+    decimal? ValorOrigemSaldo,
     bool Replay);

@@ -26,7 +26,7 @@ public sealed class AppDbContextNumericOverflowNetTests
         types:
         [
             typeof(string), typeof(string), typeof(string), typeof(TipoOperacao), typeof(decimal),
-            typeof(decimal), typeof(DateOnly), typeof(DateTimeOffset), typeof(string),
+            typeof(decimal), typeof(DateOnly), typeof(DateTimeOffset), typeof(string), typeof(decimal?),
         ],
         modifiers: null)!;
 
@@ -35,7 +35,7 @@ public sealed class AppDbContextNumericOverflowNetTests
         (Operacao)OperacaoConstructor.Invoke(
         [
             id, clienteId, instrumentoId, TipoOperacao.Aporte, quantidade, valorFinanceiro,
-            new DateOnly(2020, 1, 1), DateTimeOffset.UtcNow, null,
+            new DateOnly(2020, 1, 1), DateTimeOffset.UtcNow, null, 500m,
         ]);
 
     [Fact]
@@ -126,7 +126,8 @@ public sealed class AppDbContextNumericOverflowNetTests
             valorFinanceiro: 1000m,
             dataEvento: new DateOnly(2020, 1, 1),
             registradoEm: DateTimeOffset.UtcNow,
-            hoje: new DateOnly(2020, 1, 1)).Value;
+            hoje: new DateOnly(2020, 1, 1),
+            valorOrigemSaldo: 500m).Value;
         db.Operacoes.Add(operacaoValida);
         var sucessoResultado = await unitOfWork.SaveChangesAsync(CancellationToken.None);
 

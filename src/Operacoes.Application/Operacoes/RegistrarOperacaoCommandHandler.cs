@@ -44,7 +44,8 @@ public sealed class RegistrarOperacaoCommandHandler(
             dataEvento: request.DataEvento,
             registradoEm: agora,
             hoje: hoje,
-            estornaOperacaoId: request.EstornaOperacaoId);
+            estornaOperacaoId: request.EstornaOperacaoId,
+            valorOrigemSaldo: request.ValorOrigemSaldo);
 
         if (operacaoResult.IsFailure)
         {
@@ -149,6 +150,7 @@ public sealed class RegistrarOperacaoCommandHandler(
             existente.DataEvento,
             existente.RegistradoEm,
             existente.EstornaOperacaoId,
+            existente.ValorOrigemSaldo,
             Replay: true);
     }
 
@@ -162,5 +164,6 @@ public sealed class RegistrarOperacaoCommandHandler(
         operacao.DataEvento,
         operacao.RegistradoEm,
         operacao.EstornaOperacaoId,
+        operacao.ValorOrigemSaldo,
         replay);
 }

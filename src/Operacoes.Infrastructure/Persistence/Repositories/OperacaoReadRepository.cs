@@ -31,7 +31,8 @@ public sealed class OperacaoReadRepository(NpgsqlDataSource dataSource) : IOpera
             valor_financeiro AS "ValorFinanceiro",
             data_evento AS "DataEvento",
             registrado_em AS "RegistradoEm",
-            estorna_operacao_id AS "EstornaOperacaoId"
+            estorna_operacao_id AS "EstornaOperacaoId",
+            valor_origem_saldo AS "ValorOrigemSaldo"
         FROM operacoes
         WHERE id = @id
         """;

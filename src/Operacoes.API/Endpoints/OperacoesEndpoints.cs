@@ -35,6 +35,7 @@ public static class OperacoesEndpoints
                     request.ValorFinanceiro,
                     request.DataEvento,
                     request.EstornaOperacaoId,
+                    request.ValorOrigemSaldo,
                     idempotencyKey);
 
                 var result = await sender.Send(command, ct);
@@ -97,7 +98,8 @@ public static class OperacoesEndpoints
         resultado.ValorFinanceiro,
         resultado.DataEvento,
         resultado.RegistradoEm,
-        resultado.EstornaOperacaoId);
+        resultado.EstornaOperacaoId,
+        resultado.ValorOrigemSaldo);
 
     private sealed record OperacaoResponse(
         string Id,
@@ -108,7 +110,8 @@ public static class OperacoesEndpoints
         decimal ValorFinanceiro,
         DateOnly DataEvento,
         DateTimeOffset RegistradoEm,
-        string? EstornaOperacaoId);
+        string? EstornaOperacaoId,
+        decimal? ValorOrigemSaldo);
 
     public sealed record RegistrarOperacaoRequest
     {
@@ -125,5 +128,7 @@ public static class OperacoesEndpoints
         public required DateOnly DataEvento { get; init; }
 
         public string? EstornaOperacaoId { get; init; }
+
+        public decimal? ValorOrigemSaldo { get; init; }
     }
 }

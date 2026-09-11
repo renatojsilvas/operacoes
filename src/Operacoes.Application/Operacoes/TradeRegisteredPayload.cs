@@ -33,7 +33,8 @@ public static class TradeRegisteredPayload
             ValorFinanceiro: operacao.ValorFinanceiro.ToString("F2", CultureInfo.InvariantCulture),
             DataEvento: operacao.DataEvento.ToString(DataFormat, CultureInfo.InvariantCulture),
             RegistradoEm: operacao.RegistradoEm.UtcDateTime.ToString(InstanteFormat, CultureInfo.InvariantCulture),
-            EstornaTradeId: operacao.EstornaOperacaoId);
+            EstornaTradeId: operacao.EstornaOperacaoId,
+            ValorOrigemSaldo: operacao.ValorOrigemSaldo?.ToString("F2", CultureInfo.InvariantCulture));
 
         return JsonSerializer.Serialize(contrato, SerializerOptions);
     }
@@ -49,5 +50,6 @@ public static class TradeRegisteredPayload
         string ValorFinanceiro,
         string DataEvento,
         string RegistradoEm,
-        string? EstornaTradeId);
+        string? EstornaTradeId,
+        string? ValorOrigemSaldo);
 }

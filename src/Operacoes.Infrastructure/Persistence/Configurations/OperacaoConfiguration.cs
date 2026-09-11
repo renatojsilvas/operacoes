@@ -24,6 +24,14 @@ public sealed class OperacaoConfiguration : IEntityTypeConfiguration<Operacao>
             t.HasCheckConstraint(
                 "ck_operacoes_estorno_coerente",
                 "(operacao = 'estorno') = (estorna_operacao_id IS NOT NULL)");
+
+            t.HasCheckConstraint(
+                "ck_operacoes_valor_origem_saldo_coerente",
+                "(operacao IN ('aplicacao', 'aporte')) = (valor_origem_saldo IS NOT NULL)");
+
+            t.HasCheckConstraint(
+                "ck_operacoes_valor_origem_saldo_faixa",
+                "valor_origem_saldo IS NULL OR (valor_origem_saldo >= 0 AND valor_origem_saldo <= valor_financeiro)");
         });
 
         builder.HasKey(o => o.Id);
@@ -69,6 +77,11 @@ public sealed class OperacaoConfiguration : IEntityTypeConfiguration<Operacao>
 
         builder.Property(o => o.EstornaOperacaoId)
             .HasColumnName("estorna_operacao_id")
+            .IsRequired(false);
+
+        builder.Property(o => o.ValorOrigemSaldo)
+            .HasColumnName("valor_origem_saldo")
+            .HasPrecision(18, 2)
             .IsRequired(false);
 
         builder.HasAlternateKey(o => new { o.Id, o.ClienteId, o.InstrumentoId })
