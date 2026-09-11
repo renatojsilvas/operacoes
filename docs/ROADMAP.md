@@ -576,8 +576,13 @@ registrada via Operações aparecendo no livro por evento") só é verificável 
   caminho previsto, e nada em produção significa nenhum chamador legado para justificar
   tolerância.
 
-  <br>**FEITO em 2026-09-11.** Suíte 506 → **531** (108 Domínio, 61 Application, 14
-  Architecture, 77 Infrastructure, 271 API), 0 falhas. Prova por mutação em três camadas:
+  <br>**FEITO em 2026-09-11.** Suíte 506 → **540** (108 Domínio, 61 Application, 14
+  Architecture, 77 Infrastructure, 280 API), 0 falhas — recontado por execução **depois** da última
+  rodada de correção, não copiado de uma rodada anterior. *Esta linha dizia `531` / `271 API` até a
+  revisão adversarial pegá-la: o número foi escrito depois da primeira rodada de correção e não
+  reescrito quando a segunda acrescentou 9 testes. **Contagem em documento normativo escreve-se por
+  último, depois da execução final** — a mensagem de commit da mesma entrega já dizia 540, então o
+  arquivo contradizia o commit que o gravou.* Prova por mutação em três camadas:
   removida a checagem bicondicional do Domínio → os dois testes
   `Create_ComValorOrigemSaldoAusente_TipoAplicacao_DeveFalhar` e
   `..._TipoAporte_DeveFalhar` falharam; removido o campo do `TradeRegisteredContrato`
