@@ -29,7 +29,8 @@ public sealed class HasTriggerMetadataTests
             valorFinanceiro: 1000m,
             dataEvento: new DateOnly(2026, 1, 1),
             registradoEm: default,
-            hoje: new DateOnly(2026, 1, 1)).Value;
+            hoje: new DateOnly(2026, 1, 1),
+            valorOrigemSaldo: 500m).Value;
         db.Operacoes.Add(operacao);
         await db.SaveChangesAsync(CancellationToken.None);
         Assert.NotEqual(default, operacao.RegistradoEm);

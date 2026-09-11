@@ -67,4 +67,25 @@ public static class OperacaoErrors
             "Operacao.EstornoJaRealizado",
             "Esta operação já foi estornada.",
             ErrorType.Conflict);
+    public static readonly Error ValorOrigemSaldoIncoerente =
+        new(
+            "Operacao.ValorOrigemSaldoIncoerente",
+            "ValorOrigemSaldo deve ser preenchido se, e somente se, o tipo for aplicacao ou aporte.",
+            ErrorType.Unprocessable);
+    public static readonly Error ValorOrigemSaldoInvalido =
+        new(
+            "Operacao.ValorOrigemSaldoInvalido",
+            "ValorOrigemSaldo não pode ser negativo.",
+            ErrorType.Unprocessable);
+    public static readonly Error ValorOrigemSaldoExcedeValorFinanceiro =
+        new(
+            "Operacao.ValorOrigemSaldoExcedeValorFinanceiro",
+            "ValorOrigemSaldo não pode ser maior que ValorFinanceiro.",
+            ErrorType.Unprocessable);
+    public static readonly Error ValorOrigemSaldoExcedePrecisaoSuportada =
+        new(
+            "Operacao.ValorOrigemSaldoExcedePrecisaoSuportada",
+            $"ValorOrigemSaldo deve ter no máximo {OperacaoNumericLimits.ValorFinanceiroPrecisao - OperacaoNumericLimits.ValorFinanceiroEscala} " +
+            $"dígitos inteiros e {OperacaoNumericLimits.ValorFinanceiroEscala} dígitos decimais.",
+            ErrorType.Unprocessable);
 }

@@ -503,6 +503,120 @@ Com o F5, fecha a **metade "Operações" do item 3** da ordem de implementação
 outra metade é a Custódia, em repo próprio: o critério de pronto do item ("aplicação
 registrada via Operações aparecendo no livro por evento") só é verificável com as duas.
 
+- [x] **F6** — `valorOrigemSaldo` no contrato `trades.registered` (§5.1): campo
+  **pré-requisito do F4 da Custódia** — sem ele todo `aplicacao`/`aporte` estaciona lá,
+  porque a Custódia não tem como saber quanto do `valorFinanceiro` saiu do saldo que ela
+  já contabiliza e quanto veio de fora. É **valor, não booleano**, de propósito: um
+  booleano "externo | saldo_custodia" não expressa o caso corriqueiro de resgatar 900 e
+  reaplicar 1000 (financiamento **misto**) — marcado como saldo debitaria 1000 e deixaria
+  o caixa em -100; marcado como externo não debitaria nada e deixaria 900 sobrando. Não
+  há terceira opção certa para um booleano, e o livro da Custódia é append-only: o erro
+  seria permanente. O valor, em contraste, dá uma guarda que o booleano não tinha
+  (`valorOrigemSaldo > valorFinanceiro` é detectável) e não é informação nova: é o número
+  que Operações já usa para debitar o cliente.
+
+  **Bicondicional no `POST /v1/operacoes`, rejeitando na borda (§6.1 camada 2, ADR-11):**
+  obrigatório para `aplicacao`/`aporte`, proibido para `resgate`/`estorno`, e quando
+  presente `0 <= valorOrigemSaldo <= valorFinanceiro` — os dois extremos são legítimos
+  (`0` = dinheiro todo de fora; `= valorFinanceiro` = reaplicação integral) e tudo entre
+  eles é o caso misto. Decisão já tomada antes de despachar (nada em produção: a outbox
+  tinha 0 linhas em 2026-09-09), então sem chamador legado a migrar. Molde: a coluna
+  `estorna_operacao_id` e o CHECK `ck_operacoes_estorno_coerente` — mesmo padrão de campo
+  opcional bicondicional, replicado em `valor_origem_saldo` /
+  `ck_operacoes_valor_origem_saldo_coerente`, mais um segundo CHECK de faixa
+  (`ck_operacoes_valor_origem_saldo_faixa`). Escala e magnitude validadas no Domínio pela
+  §10.25 (a mesma `numeric(18,2)` do `valor_financeiro`), com teste cruzando Domínio e
+  banco no molde de `DominioEBanco_ConcordamSobreEstornaOperacaoId`.
+
+  **Contrato:** `TradeRegisteredPayload` emite `valorOrigemSaldo` como string decimal
+  `F2`, presente apenas quando o tipo o exige — omitido por `JsonIgnoreCondition.
+  WhenWritingNull`, sem bump de `v` (campo novo e opcional, regra de evolução da §5.1).
+
+  **Prompt:**
+  ```
+  Operacoes precisa aceitar e publicar valorOrigemSaldo, que ja esta no contrato §5.1 do
+  ARQUITETURA.md (leia o bloco do TradeRegistered inteiro, inclusive os comentarios que
+  explicam por que e valor e nao booleano). Hoje o campo nao existe em lugar nenhum do
+  operacoes.
+
+  E pre-requisito do F4 da custodia: sem ele, todo aplicacao/aporte estaciona la.
+
+  Decisao ja tomada, nao rediscuta: no POST /v1/operacoes o campo e OBRIGATORIO para
+  aplicacao e aporte, e PROIBIDO para resgate e estorno — bicondicional, rejeitando com
+  422 na borda (§6.1 camada 2 / ADR-11). Nada em producao (outbox com 0 linhas), sem
+  chamador legado a migrar.
+
+  Use estorna_operacao_id como molde em tudo: entidade, Create, OperacaoErrors,
+  OperacaoConfiguration (coluna + CHECK bicondicional no molde de
+  ck_operacoes_estorno_coerente, mais CHECK de faixa), migration, command, handler,
+  TradeRegisteredPayload (F2, omitido quando nulo, sem bump de v). Valide magnitude e
+  escala pela §10.25 com os limites de ValorFinanceiro.
+
+  Migration sobre tabela existente: confira se AddCheckConstraint valida contra as
+  linhas ja gravadas antes de assumir que "coluna nullable e sempre segura".
+
+  Teste a direcao estrita nos dois sentidos: Domínio e banco cruzados por INSERT bruto
+  (molde: DominioEBanco_ConcordamSobreEstornaOperacaoId), e os dois CHECKs novos
+  existindo pelo nome (molde: Operacoes_ChecksEFkDeEstorno_ExistemComOsNomesEsperados).
+  ```
+
+  <br>**Pronto:** `POST` com o campo **ausente** num `aplicacao`/`aporte` → **422**; com
+  o campo **presente** num `resgate`/`estorno` → **422**; fora da faixa `[0,
+  valorFinanceiro]` → **422**; válido → **201** com o campo ecoado no corpo.
+  `TradeRegistered` **omite** o campo para `resgate`/`estorno` e o emite com **2
+  decimais** para `aplicacao`/`aporte`. Os dois CHECKs (`ck_operacoes_valor_origem_saldo_
+  coerente`, `ck_operacoes_valor_origem_saldo_faixa`) **existem pelo nome** e recusam por
+  `INSERT` cru exatamente o que o Domínio recusa. A migration **recusa** aplicar sobre
+  base com linha de `aplicacao`/`aporte` preexistente, com mensagem legível, e **aplica**
+  sobre base limpa.
+
+  **Decisão desta fase, tomada pelo orquestrador com o dono antes de qualquer código:** a
+  obrigatoriedade bicondicional no `POST` (em vez de aceitar o campo ausente e deixar a
+  Custódia lidar com a incerteza) — o "estaciona" da Custódia é rede de segurança, não
+  caminho previsto, e nada em produção significa nenhum chamador legado para justificar
+  tolerância.
+
+  <br>**FEITO em 2026-09-11.** Suíte 506 → **531** (108 Domínio, 61 Application, 14
+  Architecture, 77 Infrastructure, 271 API), 0 falhas. Prova por mutação em três camadas:
+  removida a checagem bicondicional do Domínio → os dois testes
+  `Create_ComValorOrigemSaldoAusente_TipoAplicacao_DeveFalhar` e
+  `..._TipoAporte_DeveFalhar` falharam; removido o campo do `TradeRegisteredContrato`
+  (sempre `null`) → três dos cinco testes de `TradeRegisteredPayloadTests` falharam;
+  removido o CHECK `ck_operacoes_valor_origem_saldo_coerente` da migration → o teste de
+  concordância Domínio↔banco **e** o de existência do CHECK falharam. Todos restaurados
+  byte a byte (sha256 conferido) antes de fechar.
+
+  Migration `AdicionaValorOrigemSaldoOperacoes`: coluna nullable somada à tabela
+  append-only, sem tocar a trigger de imutabilidade nem recriar as migrations anteriores.
+
+  **Achado bloqueador na revisão, corrigido antes de fechar:** `AddCheckConstraint`
+  **valida contra as linhas existentes** — qualquer banco com uma linha de
+  `aplicacao`/`aporte` preexistente reprovaria esta migration no boot (migrations rodam
+  no boot neste ecossistema; a suíte não pegou porque o banco de teste nasce vazio).
+  Backfill (`0`) foi descartado por inventar dado — afirmaria que a aplicação antiga foi
+  toda financiada de fora, o palpite que o campo existe para evitar — e a tabela é
+  append-only com trigger bloqueando `UPDATE`. `NOT VALID` foi descartado por aposentar
+  o problema em silêncio: linha antiga sem o campo, com evento ainda não publicado,
+  sairia sem `valorOrigemSaldo` e estacionaria na Custódia sem sinal. Solução: precondição
+  explícita no início do `Up()` (`DO $$ ... RAISE EXCEPTION`), contando as linhas
+  incompatíveis e nomeando a decisão como humana. Prova por mutação de dois testes novos
+  em `AdicionaValorOrigemSaldoOperacoesMigrationTests` (migra até a migration anterior,
+  insere `aporte` cru, tenta migrar e afirma falha com o nome da migration na mensagem;
+  controle positivo sem linha incompatível migra normalmente), no molde de
+  `PendingMigrationsHealthCheckTests` (`IMigrator.MigrateAsync("<id>")` para parar num
+  alvo).
+
+  **Dois achados de conformidade na revisão do `guardiao-padroes`, ambos a mesma lição
+  por dois ângulos:** os CHECKs novos entraram sem teste no nível de banco — `OperacaoTests`
+  cobria o Domínio e `OperacoesEndpointsTests` o HTTP, mas nenhum teste fazia `INSERT`
+  bruto provando que `ck_operacoes_valor_origem_saldo_coerente`/`_faixa` rejeitam
+  **exatamente** o que `Operacao.Create` rejeita, nem que os dois CHECKs existem pelo
+  nome — a mesma lacuna que a §10.24 registrou para `estorna_operacao_id`. Corrigido com
+  `DominioEBanco_ConcordamSobreValorOrigemSaldo` (teoria tipo × presença × faixa, com um
+  helper de `INSERT` que **não** aplica o default por tipo do helper geral — o ponto do
+  teste é justamente o caso em que o campo falta) e a extensão de
+  `Operacoes_ChecksEFkDeEstorno_ExistemComOsNomesEsperados`.
+
 ---
 
 ## Ao fechar cada F

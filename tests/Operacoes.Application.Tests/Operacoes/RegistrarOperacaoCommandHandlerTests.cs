@@ -34,8 +34,9 @@ public sealed class RegistrarOperacaoCommandHandlerTests
         decimal quantidade = 10m,
         decimal valorFinanceiro = 1000m,
         string? estornaOperacaoId = null,
+        decimal? valorOrigemSaldo = 500m,
         string idempotencyKey = "chave-1") =>
-        new(clienteId, instrumentoId, tipo, quantidade, valorFinanceiro, new DateOnly(2026, 6, 15), estornaOperacaoId, idempotencyKey);
+        new(clienteId, instrumentoId, tipo, quantidade, valorFinanceiro, new DateOnly(2026, 6, 15), estornaOperacaoId, valorOrigemSaldo, idempotencyKey);
 
     [Fact]
     public async Task Handle_ComTipoInvalido_FalhaSemChamarHub()
@@ -167,7 +168,7 @@ public sealed class RegistrarOperacaoCommandHandlerTests
         _readRepository.ReferenciaDeEstornoValida = Result<bool>.Success(false);
         var handler = CriarHandler(Result<bool>.Success(true));
 
-        var comando = ComandoValido(tipo: "estorno", estornaOperacaoId: "op-inexistente");
+        var comando = ComandoValido(tipo: "estorno", estornaOperacaoId: "op-inexistente", valorOrigemSaldo: null);
 
         var resultado = await handler.Handle(comando, CancellationToken.None);
 
@@ -210,7 +211,7 @@ public sealed class RegistrarOperacaoCommandHandlerTests
         _readRepository.ReferenciaDeEstornoValida = Result<bool>.Success(true);
         var handler = CriarHandler(Result<bool>.Success(true));
 
-        var comando = ComandoValido(tipo: "estorno", estornaOperacaoId: "op-original");
+        var comando = ComandoValido(tipo: "estorno", estornaOperacaoId: "op-original", valorOrigemSaldo: null);
 
         var resultado = await handler.Handle(comando, CancellationToken.None);
 
@@ -245,7 +246,7 @@ public sealed class RegistrarOperacaoCommandHandlerTests
     {
         var linhaExistente = new OperacaoRegistradaRow(
             "op-existente", "cliente-1", "td:tesouro-selic-2029", "aporte", 10m, 1000m,
-            new DateOnly(2026, 6, 15), Agora, null);
+            new DateOnly(2026, 6, 15), Agora, null, 500m);
         _readRepository.ConsultaPorId = Result<OperacaoConsulta>.Success(OperacaoConsulta.DeLinha(linhaExistente));
         _unitOfWork.FalhaAoSalvar = Result.Failure(DomainErrors.General.Conflict("conflito de teste"));
 

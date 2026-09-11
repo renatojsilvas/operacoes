@@ -22,7 +22,8 @@ public sealed record OperacaoRegistradaRow(
     decimal ValorFinanceiro,
     DateOnly DataEvento,
     DateTimeOffset RegistradoEm,
-    string? EstornaOperacaoId);
+    string? EstornaOperacaoId,
+    decimal? ValorOrigemSaldo);
 
 public sealed record OperacaoConsulta(bool Encontrada, OperacaoRegistradaRow? Linha)
 {

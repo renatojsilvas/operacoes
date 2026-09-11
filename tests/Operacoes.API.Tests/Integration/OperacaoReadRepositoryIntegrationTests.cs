@@ -22,7 +22,8 @@ public sealed class OperacaoReadRepositoryIntegrationTests(OutboxPostgresFixture
             valorFinanceiro: 1000m,
             dataEvento: Hoje,
             registradoEm: Agora,
-            hoje: Hoje).Value;
+            hoje: Hoje,
+            valorOrigemSaldo: 500m).Value;
 
         db.Operacoes.Add(operacao);
         await db.SaveChangesAsync();

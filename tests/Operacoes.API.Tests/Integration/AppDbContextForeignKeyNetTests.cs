@@ -21,18 +21,25 @@ public sealed class AppDbContextForeignKeyNetTests
 
     private static Operacao NovaOperacao(
         string id, string clienteId, string instrumentoId, string? estornaOperacaoId = null,
-        TipoOperacao? tipo = null) =>
-        Operacao.Create(
+        TipoOperacao? tipo = null)
+    {
+        var tipoEfetivo = tipo ?? (estornaOperacaoId is null ? TipoOperacao.Aporte : TipoOperacao.Estorno);
+        var valorOrigemSaldo = tipoEfetivo == TipoOperacao.Aporte || tipoEfetivo == TipoOperacao.Aplicacao
+            ? 500m
+            : (decimal?)null;
+        return Operacao.Create(
             id: id,
             clienteId: clienteId,
             instrumentoId: instrumentoId,
-            tipo: tipo ?? (estornaOperacaoId is null ? TipoOperacao.Aporte : TipoOperacao.Estorno),
+            tipo: tipoEfetivo,
             quantidade: 10m,
             valorFinanceiro: 1000m,
             dataEvento: new DateOnly(2020, 1, 1),
             registradoEm: DateTimeOffset.UtcNow,
             hoje: new DateOnly(2020, 1, 1),
-            estornaOperacaoId: estornaOperacaoId).Value;
+            estornaOperacaoId: estornaOperacaoId,
+            valorOrigemSaldo: valorOrigemSaldo).Value;
+    }
 
     [Fact]
     public async Task SaveChanges_ComEstornoReferenciandoOperacaoInexistente_DevolveResultFailureEstornoReferenciaInvalida()

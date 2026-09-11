@@ -51,7 +51,8 @@ public sealed class RabbitMqEventPublisherIntegrationTests : IAsyncLifetime
             valorFinanceiro: 1234.56m,
             dataEvento: new DateOnly(2026, 6, 15),
             registradoEm: agora,
-            hoje: new DateOnly(2026, 6, 15)).Value;
+            hoje: new DateOnly(2026, 6, 15),
+            valorOrigemSaldo: 500m).Value;
 
         return TradeRegisteredPayload.Serializar(operacao);
     }

@@ -108,6 +108,7 @@ public sealed class RelayReadinessTests : IAsyncLifetime
                 valorFinanceiro = 1000m,
                 dataEvento = "2020-01-01",
                 estornaOperacaoId = (string?)null,
+                valorOrigemSaldo = 500m,
             }),
         };
         request.Headers.TryAddWithoutValidation("Idempotency-Key", "chave-readiness-1");

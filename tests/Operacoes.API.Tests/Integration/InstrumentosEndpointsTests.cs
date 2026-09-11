@@ -85,6 +85,7 @@ public sealed class InstrumentosEndpointsTests : IDisposable
             valorFinanceiro = 10m,
             dataEvento = "2020-01-01",
             estornaOperacaoId = (string?)null,
+            valorOrigemSaldo = 5m,
         };
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/operacoes")
@@ -108,6 +109,7 @@ public sealed class InstrumentosEndpointsTests : IDisposable
             valorFinanceiro = 10m,
             dataEvento = "2020-01-01",
             estornaOperacaoId = (string?)null,
+            valorOrigemSaldo = 5m,
         };
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/operacoes")
@@ -133,6 +135,7 @@ public sealed class InstrumentosEndpointsTests : IDisposable
             valorFinanceiro = 10m,
             dataEvento = "2020-01-01",
             estornaOperacaoId = (string?)null,
+            valorOrigemSaldo = 5m,
         };
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/operacoes")
