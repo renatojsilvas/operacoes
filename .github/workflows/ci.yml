@@ -96,7 +96,8 @@ jobs:
           fi
 
   deploy:
-    if: github.event_name == 'push'
+    # F1 da plataforma (2026-09-19): servico apagado da VPS; deploy desligado de vez.
+    if: false
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -450,7 +451,8 @@ jobs:
     # main, e falha ALTO quando o deploy não aconteceu de fato — o commit fica com um
     # check vermelho e nomeado, em vez de um "skipped" cinza fácil de não notar numa
     # lista de checks.
-    if: always() && github.event_name == 'push'
+    # F1 da plataforma (2026-09-19): sem deploy, a guarda ficaria vermelha para sempre.
+    if: false
     needs: [test, deploy]
     runs-on: ubuntu-latest
     steps:
